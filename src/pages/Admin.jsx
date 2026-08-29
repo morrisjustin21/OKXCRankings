@@ -334,60 +334,159 @@ function ResultEntryForm() {
   )
 }
 
-// Maps the class tag used in your results printouts to a grade number.
-// Only these four count as high school — this is also what filters OUT
-// middle school (7th/8th) and Little Demons (K/3rd/4th/5th) rows, since
-// those use different tags and simply won't match.
+// Maps the class/grade tag used in results printouts to a grade number.
+// Only FR/SO/JR/SR count as high school — this is what filters OUT middle
+// school and elementary rows, since those use numeric grade tags instead.
 const CLASS_TO_GRADE = { FR: 9, SO: 10, JR: 11, SR: 12 }
 
-// Matches lines from the flat "Overall Score Bib# Name Class Chip Time Team"
-// results list, e.g.:
+// --- Format 1: "Duncan Invite" style ---------------------------------------
+// Flat "Overall Score Bib# Name Class Chip Time Team" lines, e.g.:
 //   "10 (10) 128 Ginger West FR 00:23:56.56 Duncan High School"
-//   "29 0 123 Jaylee Hornbeak FR 00:31:33.16 Duncan High School"
-// Captures: name, class tag, chip time, team name.
-const RESULT_LINE_RE =
+// Section headers (e.g. "...Large School Girls") appear BEFORE their rows.
+const DUNCAN_RESULT_LINE_RE =
   /^\d+\s+\(?\d+\)?\s+\d+\s+(.+?)\s+(FR|SO|JR|SR)\s+(\d{1,2}:\d{2}:\d{2}(?:\.\d{1,2})?)\s+(.+)$/
 
-function parseResultLine(line) {
-  const match = line.trim().match(RESULT_LINE_RE)
+function parseDuncanResultLine(line) {
+  const match = line.trim().match(DUNCAN_RESULT_LINE_RE)
   if (!match) return null
   const [, name, classTag, chipTime, team] = match
-  const [h, m, s] = chipTime.split(':')
-  const time_seconds = parseInt(h, 10) * 3600 + parseInt(m, 10) * 60 + parseFloat(s)
   return {
     athlete_name: name.trim(),
     grade: CLASS_TO_GRADE[classTag],
-    time_seconds,
+    time_seconds: parseFlexibleTime(chipTime),
     school_name_raw: team.trim(),
   }
 }
 
-// Section headers like "2026 Duncan Cross Country Large School Girls" or
-// "... High School Boys" carry the gender for every result line that follows,
-// until the next such header. This lets you paste multiple sections —
-// including both boys and girls — in one go.
-const GENDER_HEADER_RE = /\b(girls|boys)\b/i
+// --- Format 2: "DirectAthletics MeetPro" style -----------------------------
+// Lines like:
+//   "1 Hines, Hadley SR Yukon 1 19:32.4 --- 6:17.0 3:54.5"
+//   "2 Pierce, Wesley Bartlesville 2 20:24.6 6.7 6:33.8 4:04.9"  (no YR tag)
+// Columns (from the right) are always Score, Time, Gap, Avg Mile, Avg kM;
+// from the left, Place, "Last,", First — whatever's left in the middle is
+// an optional grade/YR tag followed by the (possibly multi-word) team name.
+// A numeric YR tag (7th/8th grade etc.) marks a junior-high row to exclude.
+// Section titles carrying gender/distance appear AFTER the rows they
+// describe (a page footer), not before.
+function parseDAResultLine(line) {
+  const tokens = line.trim().split(/\s+/)
+  if (tokens.length < 9) return null
+  if (!/^\d+$/.test(tokens[0])) return null
+  if (!tokens[1].endsWith(',')) return null
 
-// Only lines matching the "Overall ... Class Chip Time Team" pattern become
-// result rows — team summary rows, per-team breakout rows, and section
-// headers don't have that shape, so you can paste the whole results page
-// (not just one table) and only real individual finishes come through.
-// Headers are still scanned in passing, just to update the active gender.
+  const lastName = tokens[1].slice(0, -1)
+  const firstName = tokens[2]
+  const last5 = tokens.slice(-5)
+  const timeToken = last5[1]
+  const middle = tokens.slice(3, tokens.length - 5)
+  if (middle.length === 0) return null
+
+  let grade = null
+  let teamTokens = middle
+  const yrCandidate = middle[0]
+  if (/^(FR|SO|JR|SR)$/i.test(yrCandidate)) {
+    grade = CLASS_TO_GRADE[yrCandidate.toUpperCase()]
+    teamTokens = middle.slice(1)
+  } else if (/^\d{1,2}$/.test(yrCandidate)) {
+    return { isJuniorHigh: true } // numeric grade tag = JH/elementary row
+  }
+
+  const school_name_raw = teamTokens.join(' ').trim()
+  if (!school_name_raw) return null
+  const time_seconds = parseFlexibleTime(timeToken)
+  if (time_seconds === null) return null
+
+  return { athlete_name: `${firstName} ${lastName}`.trim(), grade, school_name_raw, time_seconds }
+}
+
+// Handles both "MM:SS.s" (DirectAthletics) and "H:MM:SS.ss" (Duncan) times.
+function parseFlexibleTime(token) {
+  const parts = token.split(':')
+  if (parts.length === 2) {
+    const m = parseInt(parts[0], 10)
+    const s = parseFloat(parts[1])
+    return Number.isNaN(m) || Number.isNaN(s) ? null : m * 60 + s
+  }
+  if (parts.length === 3) {
+    const h = parseInt(parts[0], 10)
+    const m = parseInt(parts[1], 10)
+    const s = parseFloat(parts[2])
+    return [h, m, s].some(Number.isNaN) ? null : h * 3600 + m * 60 + s
+  }
+  return null
+}
+
+// Section headers like "...Girls" / "...Boys" carry gender; "5k" / "2 Mile"
+// carry event distance; "JH" / "Junior High" / "Middle School" mark a
+// section to exclude entirely (in addition to the numeric-grade-tag check
+// above, which alone can miss JH rows that omit their grade tag).
+const GENDER_HEADER_RE = /\b(girls|boys)\b/i
+const DA_FORMAT_HINT_RE = /directathletics|avg\.?\s*mile/i
+const JH_HEADER_RE = /\bjh\b|junior high|middle school/i
+const FIVE_K_RE = /\b5k\b/i
+const TWO_MILE_RE = /2\s*mile/i
+
 function parsePastedText(text) {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+
+  if (DA_FORMAT_HINT_RE.test(text)) {
+    // DirectAthletics: each section's title appears AFTER its rows (as a
+    // page footer), so tag rows by scanning from the bottom up and carrying
+    // the nearest header BELOW each row backward onto it.
+    const entries = lines.map((line, i) => {
+      const parsed = parseDAResultLine(line)
+      if (parsed && !parsed.isJuniorHigh) return { type: 'row', lineNumber: i + 1, raw: line, ...parsed }
+      if (parsed && parsed.isJuniorHigh) return { type: 'skip' }
+
+      const genderMatch = line.match(GENDER_HEADER_RE)
+      const isJH = JH_HEADER_RE.test(line)
+      const is5K = FIVE_K_RE.test(line)
+      const is2Mile = TWO_MILE_RE.test(line)
+      if (genderMatch || isJH || is5K || is2Mile) {
+        return {
+          type: 'header',
+          gender: genderMatch ? genderMatch[1].toLowerCase() : null,
+          eventType: is5K ? '5K' : is2Mile ? '2Mile' : null,
+          isJH,
+        }
+      }
+      return { type: 'ignore' }
+    })
+
+    let nextGender = null
+    let nextEventType = null
+    let nextIsJH = false
+    const rows = []
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i]
+      if (e.type === 'header') {
+        if (e.gender) nextGender = e.gender
+        if (e.eventType) nextEventType = e.eventType
+        nextIsJH = e.isJH
+        continue
+      }
+      if (e.type === 'row') {
+        rows.push({ ...e, gender: nextGender, eventType: nextEventType, isJH: nextIsJH })
+      }
+    }
+    rows.reverse()
+    return rows.filter((r) => !r.isJH)
+  }
+
+  // Duncan Invite style: section header appears BEFORE its rows, so a plain
+  // forward scan works. Event type isn't in these headers (this format is
+  // always 5K in your data so far), so it's set directly.
   let currentGender = null
   const rows = []
-
   lines.forEach((line, i) => {
-    const parsed = parseResultLine(line)
+    const parsed = parseDuncanResultLine(line)
     if (parsed) {
-      rows.push({ lineNumber: i + 1, raw: line, gender: currentGender, ...parsed })
+      rows.push({ lineNumber: i + 1, raw: line, gender: currentGender, eventType: '5K', ...parsed })
       return
     }
     const headerMatch = line.match(GENDER_HEADER_RE)
     if (headerMatch) currentGender = headerMatch[1].toLowerCase()
   })
-
   return rows
 }
 
@@ -443,7 +542,13 @@ function BulkPasteForm() {
       if (!row.gender) {
         return {
           ...row,
-          error: 'Gender unknown — make sure the "...Girls"/"...Boys" section header above this result was included in the paste',
+          error: 'Gender unknown — make sure the "...Girls"/"...Boys" section header for this result was included in the paste',
+        }
+      }
+      if (!row.eventType) {
+        return {
+          ...row,
+          error: 'Distance unknown — make sure the section header ("...5k..." or "...2 Mile...") for this result was included in the paste',
         }
       }
       const match =
@@ -476,7 +581,7 @@ function BulkPasteForm() {
         grade: row.grade,
         gender: row.gender,
         classification: row.classification,
-        event_type: '5K',
+        event_type: row.eventType,
         time_seconds: row.time_seconds,
         meet_name: meetName.trim() || null,
         meet_date: meetDate || null,
@@ -521,9 +626,11 @@ function BulkPasteForm() {
         </div>
       </div>
       <p className="text-xs text-gray-400 mb-3">
-        Paste as many sections as you want at once — boys and girls together is fine.
-        Gender is picked up from each "...Girls"/"...Boys" section header, and
-        classification comes from each school's record in the Schools tab.
+        Paste as many sections as you want at once — boys and girls together is fine, and
+        both your Duncan-style results and DirectAthletics MeetPro reports are recognized
+        automatically. Gender and distance (5K vs 2 Mile) are read from each section's
+        header text, classification comes from each school's record in the Schools tab, and
+        junior-high/middle-school results are always skipped.
       </p>
 
       <label className="block text-xs text-gray-500 mb-1">Paste results</label>
@@ -549,6 +656,12 @@ function BulkPasteForm() {
           <p className="text-xs text-gray-500 mb-2">
             {readyCount} ready to save{errorCount > 0 ? `, ${errorCount} need attention` : ''}
           </p>
+          {parsedRows.some((r) => r.eventType === '2Mile') && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 mb-2">
+              This batch includes 2 Mile results. They'll save correctly tagged as 2 Mile, but
+              won't show up on the public rankings page yet since that only displays 5K.
+            </p>
+          )}
           <table className="w-full border-collapse text-sm mb-3">
             <thead>
               <tr>
@@ -556,6 +669,7 @@ function BulkPasteForm() {
                 <th className="text-left text-xs text-gray-400 font-normal py-1">School</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Gr</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Gender</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Event</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Time</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Status</th>
               </tr>
@@ -565,8 +679,9 @@ function BulkPasteForm() {
                 <tr key={r.lineNumber} className={`border-t border-gray-200 ${r.error ? 'bg-red-50' : ''}`}>
                   <td className="py-1.5">{r.athlete_name}</td>
                   <td className="py-1.5">{r.school_name_raw}</td>
-                  <td className="py-1.5">{r.grade}</td>
+                  <td className="py-1.5">{r.grade ?? '—'}</td>
                   <td className="py-1.5 capitalize">{r.gender || '—'}</td>
+                  <td className="py-1.5">{r.eventType || '—'}</td>
                   <td className="py-1.5">{r.time_seconds.toFixed(2)}s</td>
                   <td className="py-1.5 text-xs">
                     {r.error ? <span className="text-red-600">{r.error}</span> : <span className="text-green-700">Ready ({r.classification})</span>}
