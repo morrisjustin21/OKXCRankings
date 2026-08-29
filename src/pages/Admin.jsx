@@ -521,9 +521,11 @@ function BulkPasteForm() {
 function SchoolManager() {
   const [schools, setSchools] = useState([])
   const [loading, setLoading] = useState(true)
-  const [newName, setNewName] = useState('')
-  const [newClassification, setNewClassification] = useState('5A')
+  const [bulkNames, setBulkNames] = useState('')
+  const [defaultClassification, setDefaultClassification] = useState('5A')
   const [error, setError] = useState('')
+  const [summary, setSummary] = useState('')
+  const [adding, setAdding] = useState(false)
   const [savingRowId, setSavingRowId] = useState(null)
 
   useEffect(() => {
@@ -542,21 +544,65 @@ function SchoolManager() {
     setLoading(false)
   }
 
-  async function handleAdd(e) {
+  // Each line is a school name. Optionally override the default classification
+  // for that line by adding a comma, e.g. "Duncan, 5A" — otherwise the
+  // dropdown's classification is used for every line.
+  function parseBulkSchools(text) {
+    return text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [namePart, classPart] = line.split(',').map((s) => s.trim())
+        const classification =
+          classPart && CLASSIFICATIONS.includes(classPart.toUpperCase())
+            ? classPart.toUpperCase()
+            : defaultClassification
+        return { name: namePart, classification }
+      })
+  }
+
+  async function handleAddBulk(e) {
     e.preventDefault()
     setError('')
-    if (!newName.trim()) {
-      setError('Enter a school name.')
+    setSummary('')
+
+    const rows = parseBulkSchools(bulkNames)
+    if (rows.length === 0) {
+      setError('Enter at least one school name.')
       return
     }
-    const { error: insertErr } = await supabase
-      .from('xc_schools')
-      .insert({ name: newName.trim(), classification: newClassification })
-    if (insertErr) {
-      setError(`Could not add school: ${insertErr.message}`)
-      return
+
+    setAdding(true)
+    const existingNames = new Set(schools.map((s) => s.name.toLowerCase()))
+    let added = 0
+    let skipped = 0
+    const failures = []
+
+    for (const row of rows) {
+      if (existingNames.has(row.name.toLowerCase())) {
+        skipped += 1
+        continue
+      }
+      const { error: insertErr } = await supabase
+        .from('xc_schools')
+        .insert({ name: row.name, classification: row.classification })
+      if (insertErr) {
+        failures.push(`${row.name}: ${insertErr.message}`)
+      } else {
+        added += 1
+        existingNames.add(row.name.toLowerCase())
+      }
     }
-    setNewName('')
+
+    setAdding(false)
+    setSummary(
+      `Added ${added} school(s).` +
+        (skipped ? ` Skipped ${skipped} already in the list.` : '') +
+        (failures.length ? ` ${failures.length} failed.` : '')
+    )
+    if (failures.length) setError(failures.join('; '))
+    setBulkNames('')
     fetchSchools()
   }
 
@@ -576,18 +622,12 @@ function SchoolManager() {
 
   return (
     <div className="max-w-lg">
-      <form onSubmit={handleAdd} className="flex gap-2 mb-5">
-        <input
-          type="text"
-          placeholder="New school name"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-2 text-sm flex-1"
-        />
+      <form onSubmit={handleAddBulk} className="mb-5">
+        <label className="block text-xs text-gray-500 mb-1">Default classification for this batch</label>
         <select
-          value={newClassification}
-          onChange={(e) => setNewClassification(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-2 text-sm"
+          value={defaultClassification}
+          onChange={(e) => setDefaultClassification(e.target.value)}
+          className="border border-gray-300 rounded px-3 py-2 text-sm mb-2 w-40"
         >
           {CLASSIFICATIONS.map((c) => (
             <option key={c} value={c}>
@@ -595,11 +635,30 @@ function SchoolManager() {
             </option>
           ))}
         </select>
-        <button type="submit" className="bg-blue-700 text-white rounded px-4 py-2 text-sm whitespace-nowrap">
-          Add school
+
+        <label className="block text-xs text-gray-500 mb-1">School names, one per line</label>
+        <textarea
+          value={bulkNames}
+          onChange={(e) => setBulkNames(e.target.value)}
+          rows={6}
+          placeholder={'Duncan\nArdmore\nElk City, 4A'}
+          className="border border-gray-300 rounded px-3 py-2 mb-1 w-full text-sm font-mono"
+        />
+        <p className="text-xs text-gray-400 mb-3">
+          Every line uses the classification above by default. Add a comma and a different
+          classification on a line to override it just for that school (e.g. "Elk City, 4A").
+        </p>
+
+        <button
+          type="submit"
+          disabled={adding || !bulkNames.trim()}
+          className="bg-blue-700 text-white rounded px-4 py-2 text-sm disabled:opacity-50"
+        >
+          {adding ? 'Adding...' : 'Add schools'}
         </button>
       </form>
 
+      {summary && <p className="text-sm text-green-700 mb-3">{summary}</p>}
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
 
       {loading ? (
