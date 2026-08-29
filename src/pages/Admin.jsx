@@ -387,6 +387,19 @@ function parsePastedText(text) {
   return rows
 }
 
+// Strips common school-name suffixes/punctuation so "Duncan High School" and
+// "Duncan" resolve to the same key. This handles the common case for free;
+// genuine one-off mismatches (typos, "HS (Town)" tags) are handled by
+// per-school aliases instead, since guessing those generically risks false
+// matches between different schools.
+function normalizeSchoolName(name) {
+  return name
+    .toLowerCase()
+    .replace(/\b(high school|junior high|middle school|elementary school|h\.?s\.?)\b/gi, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
 function BulkPasteForm() {
   const [pastedText, setPastedText] = useState('')
   const [meetName, setMeetName] = useState('')
@@ -408,8 +421,19 @@ function BulkPasteForm() {
     setPreviewing(true)
 
     const rawRows = parsePastedText(pastedText)
-    const { data: schools } = await supabase.from('xc_schools').select('id, name, classification')
-    const schoolByName = new Map((schools || []).map((s) => [s.name.trim().toLowerCase(), s]))
+    const { data: schools } = await supabase.from('xc_schools').select('id, name, classification, aliases')
+
+    // Map every known name variant — canonical name, its normalized form, and
+    // any saved aliases (also normalized) — to the school it belongs to.
+    const schoolByKey = new Map()
+    for (const school of schools || []) {
+      schoolByKey.set(school.name.trim().toLowerCase(), school)
+      schoolByKey.set(normalizeSchoolName(school.name), school)
+      for (const alias of school.aliases || []) {
+        schoolByKey.set(alias.trim().toLowerCase(), school)
+        schoolByKey.set(normalizeSchoolName(alias), school)
+      }
+    }
 
     const resolved = rawRows.map((row) => {
       if (!row.gender) {
@@ -418,9 +442,14 @@ function BulkPasteForm() {
           error: 'Gender unknown — make sure the "...Girls"/"...Boys" section header above this result was included in the paste',
         }
       }
-      const match = schoolByName.get(row.school_name_raw.toLowerCase())
+      const match =
+        schoolByKey.get(row.school_name_raw.trim().toLowerCase()) ||
+        schoolByKey.get(normalizeSchoolName(row.school_name_raw))
       if (!match) {
-        return { ...row, error: `School "${row.school_name_raw}" not found — add it in the Schools tab first` }
+        return {
+          ...row,
+          error: `School "${row.school_name_raw}" not found — add it (or an alias for it) in the Schools tab`,
+        }
       }
       return { ...row, school_id: match.id, classification: match.classification, error: null }
     })
@@ -578,7 +607,7 @@ function SchoolManager() {
     setLoading(true)
     const { data, error } = await supabase
       .from('xc_schools')
-      .select('id, name, classification')
+      .select('id, name, classification, aliases')
       .order('classification')
       .order('name')
     if (error) setError(error.message)
@@ -662,8 +691,26 @@ function SchoolManager() {
     fetchSchools()
   }
 
+  async function handleAliasesChange(schoolId, aliasesText) {
+    const aliases = aliasesText
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean)
+    setSavingRowId(schoolId)
+    const { error: updateErr } = await supabase
+      .from('xc_schools')
+      .update({ aliases })
+      .eq('id', schoolId)
+    setSavingRowId(null)
+    if (updateErr) {
+      setError(`Could not update aliases: ${updateErr.message}`)
+      return
+    }
+    fetchSchools()
+  }
+
   return (
-    <div className="max-w-lg">
+    <div className="max-w-2xl">
       <form onSubmit={handleAddBulk} className="mb-5">
         <label className="block text-xs text-gray-500 mb-1">Default classification for this batch</label>
         <select
@@ -703,6 +750,12 @@ function SchoolManager() {
       {summary && <p className="text-sm text-green-700 mb-3">{summary}</p>}
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
 
+      <p className="text-xs text-gray-400 mb-2">
+        "Duncan" already matches "Duncan High School" automatically in pasted results. Use
+        Aliases below only for names a plain match won't catch — typos in results printouts,
+        or tags like "Central HS (Marlow)".
+      </p>
+
       {loading ? (
         <p className="text-sm text-gray-500">Loading schools...</p>
       ) : (
@@ -710,14 +763,15 @@ function SchoolManager() {
           <thead>
             <tr>
               <th className="text-left text-xs text-gray-400 font-normal py-1">School</th>
-              <th className="text-left text-xs text-gray-400 font-normal py-1 w-24">Class</th>
+              <th className="text-left text-xs text-gray-400 font-normal py-1 w-20">Class</th>
+              <th className="text-left text-xs text-gray-400 font-normal py-1">Aliases</th>
             </tr>
           </thead>
           <tbody>
             {schools.map((s) => (
               <tr key={s.id} className="border-t border-gray-200">
-                <td className="py-1.5">{s.name}</td>
-                <td className="py-1.5">
+                <td className="py-1.5 align-top">{s.name}</td>
+                <td className="py-1.5 align-top">
                   <select
                     value={s.classification}
                     onChange={(e) => handleClassificationChange(s.id, e.target.value)}
@@ -730,6 +784,16 @@ function SchoolManager() {
                       </option>
                     ))}
                   </select>
+                </td>
+                <td className="py-1.5 align-top">
+                  <input
+                    type="text"
+                    defaultValue={(s.aliases || []).join(', ')}
+                    onBlur={(e) => handleAliasesChange(s.id, e.target.value)}
+                    placeholder="e.g. Central HS (Marlow), Marlow"
+                    disabled={savingRowId === s.id}
+                    className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                  />
                 </td>
               </tr>
             ))}
