@@ -358,25 +358,37 @@ function parseResultLine(line) {
   }
 }
 
-// Only lines matching the "Overall ... Class Chip Time Team" pattern survive —
-// team summary rows, per-team breakout rows, and section headers don't have
-// that shape and are silently skipped, so you can paste the whole results
-// page (not just one table) and only real individual finishes come through.
+// Section headers like "2026 Duncan Cross Country Large School Girls" or
+// "... High School Boys" carry the gender for every result line that follows,
+// until the next such header. This lets you paste multiple sections —
+// including both boys and girls — in one go.
+const GENDER_HEADER_RE = /\b(girls|boys)\b/i
+
+// Only lines matching the "Overall ... Class Chip Time Team" pattern become
+// result rows — team summary rows, per-team breakout rows, and section
+// headers don't have that shape, so you can paste the whole results page
+// (not just one table) and only real individual finishes come through.
+// Headers are still scanned in passing, just to update the active gender.
 function parsePastedText(text) {
-  return text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((line, i) => {
-      const parsed = parseResultLine(line)
-      return parsed ? { lineNumber: i + 1, raw: line, ...parsed } : null
-    })
-    .filter(Boolean)
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  let currentGender = null
+  const rows = []
+
+  lines.forEach((line, i) => {
+    const parsed = parseResultLine(line)
+    if (parsed) {
+      rows.push({ lineNumber: i + 1, raw: line, gender: currentGender, ...parsed })
+      return
+    }
+    const headerMatch = line.match(GENDER_HEADER_RE)
+    if (headerMatch) currentGender = headerMatch[1].toLowerCase()
+  })
+
+  return rows
 }
 
 function BulkPasteForm() {
   const [pastedText, setPastedText] = useState('')
-  const [gender, setGender] = useState('boys')
   const [meetName, setMeetName] = useState('')
   const [meetDate, setMeetDate] = useState('')
   const [parsedRows, setParsedRows] = useState([])
@@ -385,10 +397,11 @@ function BulkPasteForm() {
   const [saveError, setSaveError] = useState('')
   const [saveSuccess, setSaveSuccess] = useState('')
 
-  // Classification isn't picked here — race groupings like "Large School" /
-  // "Small School" at an invite don't match OSSAA classification, so each
-  // row's classification comes from that school's own record in the Schools
-  // tab. Add the school there first if a row can't find a match.
+  // Neither gender nor classification is picked here. Gender comes from
+  // whichever "...Girls" / "...Boys" section header appeared above each row
+  // in the pasted text. Classification comes from that school's own record
+  // in the Schools tab — race groupings like "Large School" / "Small School"
+  // at an invite don't match real OSSAA classification.
   async function handlePreview() {
     setSaveError('')
     setSaveSuccess('')
@@ -399,6 +412,12 @@ function BulkPasteForm() {
     const schoolByName = new Map((schools || []).map((s) => [s.name.trim().toLowerCase(), s]))
 
     const resolved = rawRows.map((row) => {
+      if (!row.gender) {
+        return {
+          ...row,
+          error: 'Gender unknown — make sure the "...Girls"/"...Boys" section header above this result was included in the paste',
+        }
+      }
       const match = schoolByName.get(row.school_name_raw.toLowerCase())
       if (!match) {
         return { ...row, error: `School "${row.school_name_raw}" not found — add it in the Schools tab first` }
@@ -422,7 +441,7 @@ function BulkPasteForm() {
         athlete_name: row.athlete_name,
         school_id: row.school_id,
         grade: row.grade,
-        gender,
+        gender: row.gender,
         classification: row.classification,
         event_type: '5K',
         time_seconds: row.time_seconds,
@@ -448,18 +467,7 @@ function BulkPasteForm() {
 
   return (
     <div className="max-w-2xl">
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Gender</label>
-          <select
-            value={gender}
-            onChange={(e) => setGender(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 w-full text-sm"
-          >
-            <option value="boys">Boys</option>
-            <option value="girls">Girls</option>
-          </select>
-        </div>
+      <div className="grid grid-cols-2 gap-2 mb-3">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Meet name (optional)</label>
           <input
@@ -480,9 +488,9 @@ function BulkPasteForm() {
         </div>
       </div>
       <p className="text-xs text-gray-400 mb-3">
-        Paste one gender's section at a time (e.g. just the girls results, then the boys
-        separately) since gender is set above for the whole batch. Classification is looked
-        up automatically from each school's record in the Schools tab.
+        Paste as many sections as you want at once — boys and girls together is fine.
+        Gender is picked up from each "...Girls"/"...Boys" section header, and
+        classification comes from each school's record in the Schools tab.
       </p>
 
       <label className="block text-xs text-gray-500 mb-1">Paste results</label>
@@ -514,6 +522,7 @@ function BulkPasteForm() {
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Athlete</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">School</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Gr</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Gender</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Time</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Status</th>
               </tr>
@@ -524,6 +533,7 @@ function BulkPasteForm() {
                   <td className="py-1.5">{r.athlete_name}</td>
                   <td className="py-1.5">{r.school_name_raw}</td>
                   <td className="py-1.5">{r.grade}</td>
+                  <td className="py-1.5 capitalize">{r.gender || '—'}</td>
                   <td className="py-1.5">{r.time_seconds.toFixed(2)}s</td>
                   <td className="py-1.5 text-xs">
                     {r.error ? <span className="text-red-600">{r.error}</span> : <span className="text-green-700">Ready ({r.classification})</span>}
