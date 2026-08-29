@@ -16,7 +16,7 @@ export default function App() {
   async function fetchResults() {
     setLoading(true)
     const { data, error } = await supabase
-      .from('xc_results')
+      .from('xc_best_results') // deduped view: one row per athlete
       .select('*, xc_schools(name)')
       .eq('gender', gender)
       .eq('classification', classification)
@@ -36,49 +36,87 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white p-6">
-      <h1 className="text-3xl font-bold mb-4">OK Cross Country Rankings</h1>
-
-      <div className="flex gap-4 mb-6">
-        <select value={gender} onChange={(e) => setGender(e.target.value)} className="border rounded px-3 py-2">
-          <option value="boys">Boys</option>
-          <option value="girls">Girls</option>
-        </select>
-        <select value={classification} onChange={(e) => setClassification(e.target.value)} className="border rounded px-3 py-2">
-          {CLASSIFICATIONS.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
+    <div className="min-h-screen bg-white text-gray-900 p-6">
+      {/* Header band */}
+      <div className="bg-blue-50 rounded-xl px-5 py-4 mb-4 max-w-3xl">
+        <p className="text-xs text-blue-700 mb-0.5">Oklahoma</p>
+        <h1 className="text-xl font-medium text-blue-700 m-0">Cross country rankings</h1>
       </div>
 
-      {loading ? (
-        <p>Loading...</p>
-      ) : (
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2">#</th>
-              <th>Athlete</th>
-              <th>School</th>
-              <th>Grade</th>
-              <th>Time</th>
-              <th>Meet</th>
-            </tr>
-          </thead>
-          <tbody>
-            {results.map((r, i) => (
-              <tr key={r.id} className="border-b">
-                <td className="py-2">{i + 1}</td>
-                <td>{r.athlete_name}</td>
-                <td>{r.xc_schools?.name}</td>
-                <td>{r.grade}</td>
-                <td>{formatTime(r.time_seconds)}</td>
-                <td>{r.meet_name}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <div className="max-w-3xl grid grid-cols-[140px_1fr] gap-4">
+        {/* Sidebar filters */}
+        <div className="border-r border-gray-200 pr-4">
+          <p className="text-xs text-gray-400 mb-2">Gender</p>
+          <button
+            onClick={() => setGender('boys')}
+            className={`block w-full text-left text-sm rounded px-2 py-1 mb-1 ${
+              gender === 'boys' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500'
+            }`}
+          >
+            Boys
+          </button>
+          <button
+            onClick={() => setGender('girls')}
+            className={`block w-full text-left text-sm rounded px-2 py-1 mb-4 ${
+              gender === 'girls' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500'
+            }`}
+          >
+            Girls
+          </button>
+
+          <p className="text-xs text-gray-400 mb-2">Class</p>
+          {CLASSIFICATIONS.map((c) => (
+            <button
+              key={c}
+              onClick={() => setClassification(c)}
+              className={`block w-full text-left text-sm rounded px-2 py-1 mb-1 ${
+                classification === c ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500'
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+
+        {/* Results table */}
+        <div>
+          <div className="flex items-baseline justify-between mb-2">
+            <h2 className="text-base font-medium m-0">
+              {gender === 'boys' ? 'Boys' : 'Girls'} {classification} · 5K
+            </h2>
+            <span className="text-xs text-gray-400">Top 50</span>
+          </div>
+
+          {loading ? (
+            <p className="text-sm text-gray-500">Loading...</p>
+          ) : results.length === 0 ? (
+            <p className="text-sm text-gray-500">No results yet for this category.</p>
+          ) : (
+            <table className="w-full border-collapse table-fixed">
+              <thead>
+                <tr>
+                  <th className="text-left text-xs text-gray-400 font-normal py-1 w-6">#</th>
+                  <th className="text-left text-xs text-gray-400 font-normal py-1">Athlete</th>
+                  <th className="text-left text-xs text-gray-400 font-normal py-1">School</th>
+                  <th className="text-left text-xs text-gray-400 font-normal py-1 w-9">Gr</th>
+                  <th className="text-right text-xs text-gray-400 font-normal py-1 w-[70px]">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((r, i) => (
+                  <tr key={r.id} className="border-t border-gray-200">
+                    <td className="py-1.5 text-sm">{i + 1}</td>
+                    <td className="py-1.5 text-sm">{r.athlete_name}</td>
+                    <td className="py-1.5 text-sm text-gray-500">{r.xc_schools?.name}</td>
+                    <td className="py-1.5 text-sm">{r.grade}</td>
+                    <td className="py-1.5 text-sm text-right font-medium">{formatTime(r.time_seconds)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
