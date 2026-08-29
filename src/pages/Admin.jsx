@@ -426,7 +426,10 @@ const JH_HEADER_RE = /\bjh\b|junior high|middle school/i
 const FIVE_K_RE = /\b5k\b/i
 const TWO_MILE_RE = /2\s*mile/i
 
-function parsePastedText(text) {
+function parsePastedText(rawText) {
+  // Some source PDFs have a stray space before the comma in "Last , First"
+  // — normalize that away first so those rows don't silently fail to parse.
+  const text = rawText.replace(/\s+,/g, ',')
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
 
   if (DA_FORMAT_HINT_RE.test(text)) {
