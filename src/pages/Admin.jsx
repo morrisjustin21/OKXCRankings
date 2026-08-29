@@ -330,38 +330,84 @@ function ResultEntryForm() {
   )
 }
 
-// PLACEHOLDER: parsing logic depends on your copy/paste source format.
-// Once you share a sample block of pasted text, this function gets replaced
-// with real column parsing (name / grade / school / time, in whatever order
-// and spacing your source actually uses).
+// Maps the class tag used in your results printouts to a grade number.
+// Only these four count as high school — this is also what filters OUT
+// middle school (7th/8th) and Little Demons (K/3rd/4th/5th) rows, since
+// those use different tags and simply won't match.
+const CLASS_TO_GRADE = { FR: 9, SO: 10, JR: 11, SR: 12 }
+
+// Matches lines from the flat "Overall Score Bib# Name Class Chip Time Team"
+// results list, e.g.:
+//   "10 (10) 128 Ginger West FR 00:23:56.56 Duncan High School"
+//   "29 0 123 Jaylee Hornbeak FR 00:31:33.16 Duncan High School"
+// Captures: name, class tag, chip time, team name.
+const RESULT_LINE_RE =
+  /^\d+\s+\(?\d+\)?\s+\d+\s+(.+?)\s+(FR|SO|JR|SR)\s+(\d{1,2}:\d{2}:\d{2}(?:\.\d{1,2})?)\s+(.+)$/
+
+function parseResultLine(line) {
+  const match = line.trim().match(RESULT_LINE_RE)
+  if (!match) return null
+  const [, name, classTag, chipTime, team] = match
+  const [h, m, s] = chipTime.split(':')
+  const time_seconds = parseInt(h, 10) * 3600 + parseInt(m, 10) * 60 + parseFloat(s)
+  return {
+    athlete_name: name.trim(),
+    grade: CLASS_TO_GRADE[classTag],
+    time_seconds,
+    school_name_raw: team.trim(),
+  }
+}
+
+// Only lines matching the "Overall ... Class Chip Time Team" pattern survive —
+// team summary rows, per-team breakout rows, and section headers don't have
+// that shape and are silently skipped, so you can paste the whole results
+// page (not just one table) and only real individual finishes come through.
 function parsePastedText(text) {
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-  return lines.map((line, i) => ({
-    lineNumber: i + 1,
-    raw: line,
-    athlete_name: null,
-    grade: null,
-    school_name: null,
-    time_seconds: null,
-    error: 'Parser not yet configured for your results format',
-  }))
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((line, i) => {
+      const parsed = parseResultLine(line)
+      return parsed ? { lineNumber: i + 1, raw: line, ...parsed } : null
+    })
+    .filter(Boolean)
 }
 
 function BulkPasteForm() {
   const [pastedText, setPastedText] = useState('')
   const [gender, setGender] = useState('boys')
-  const [classification, setClassification] = useState('5A')
   const [meetName, setMeetName] = useState('')
   const [meetDate, setMeetDate] = useState('')
   const [parsedRows, setParsedRows] = useState([])
+  const [previewing, setPreviewing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [saveSuccess, setSaveSuccess] = useState('')
 
-  function handlePreview() {
+  // Classification isn't picked here — race groupings like "Large School" /
+  // "Small School" at an invite don't match OSSAA classification, so each
+  // row's classification comes from that school's own record in the Schools
+  // tab. Add the school there first if a row can't find a match.
+  async function handlePreview() {
     setSaveError('')
     setSaveSuccess('')
-    setParsedRows(parsePastedText(pastedText))
+    setPreviewing(true)
+
+    const rawRows = parsePastedText(pastedText)
+    const { data: schools } = await supabase.from('xc_schools').select('id, name, classification')
+    const schoolByName = new Map((schools || []).map((s) => [s.name.trim().toLowerCase(), s]))
+
+    const resolved = rawRows.map((row) => {
+      const match = schoolByName.get(row.school_name_raw.toLowerCase())
+      if (!match) {
+        return { ...row, error: `School "${row.school_name_raw}" not found — add it in the Schools tab first` }
+      }
+      return { ...row, school_id: match.id, classification: match.classification, error: null }
+    })
+
+    setParsedRows(resolved)
+    setPreviewing(false)
   }
 
   async function handleSaveAll() {
@@ -369,48 +415,40 @@ function BulkPasteForm() {
     setSaveError('')
     const validRows = parsedRows.filter((r) => !r.error)
     let savedCount = 0
+    const failures = []
 
     for (const row of validRows) {
-      // Look up or create the school
-      let { data: school } = await supabase
-        .from('xc_schools')
-        .select('id')
-        .eq('name', row.school_name)
-        .single()
-
-      if (!school) {
-        const { data: newSchool, error: schoolErr } = await supabase
-          .from('xc_schools')
-          .insert({ name: row.school_name, classification })
-          .select('id')
-          .single()
-        if (schoolErr) continue
-        school = newSchool
-      }
-
       const { error: insertErr } = await supabase.from('xc_results').insert({
         athlete_name: row.athlete_name,
-        school_id: school.id,
+        school_id: row.school_id,
         grade: row.grade,
         gender,
-        classification,
+        classification: row.classification,
         event_type: '5K',
         time_seconds: row.time_seconds,
         meet_name: meetName.trim() || null,
         meet_date: meetDate || null,
       })
-      if (!insertErr) savedCount += 1
+      if (insertErr) {
+        failures.push(`${row.athlete_name}: ${insertErr.message}`)
+      } else {
+        savedCount += 1
+      }
     }
 
     setSaving(false)
     setSaveSuccess(`Saved ${savedCount} of ${validRows.length} result(s).`)
+    if (failures.length) setSaveError(failures.join('; '))
     setParsedRows([])
     setPastedText('')
   }
 
+  const readyCount = parsedRows.filter((r) => !r.error).length
+  const errorCount = parsedRows.length - readyCount
+
   return (
     <div className="max-w-2xl">
-      <div className="grid grid-cols-2 gap-2 mb-3">
+      <div className="grid grid-cols-3 gap-2 mb-3">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Gender</label>
           <select
@@ -420,20 +458,6 @@ function BulkPasteForm() {
           >
             <option value="boys">Boys</option>
             <option value="girls">Girls</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">Class</label>
-          <select
-            value={classification}
-            onChange={(e) => setClassification(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 w-full text-sm"
-          >
-            {CLASSIFICATIONS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
           </select>
         </div>
         <div>
@@ -455,33 +479,41 @@ function BulkPasteForm() {
           />
         </div>
       </div>
+      <p className="text-xs text-gray-400 mb-3">
+        Paste one gender's section at a time (e.g. just the girls results, then the boys
+        separately) since gender is set above for the whole batch. Classification is looked
+        up automatically from each school's record in the Schools tab.
+      </p>
 
       <label className="block text-xs text-gray-500 mb-1">Paste results</label>
       <textarea
         value={pastedText}
         onChange={(e) => setPastedText(e.target.value)}
-        rows={10}
-        placeholder="Paste a block of results here..."
+        rows={12}
+        placeholder="Paste the results page here — team summaries and headers are ignored automatically."
         className="border border-gray-300 rounded px-3 py-2 mb-3 w-full text-sm font-mono"
       />
 
       <button
         type="button"
         onClick={handlePreview}
-        disabled={!pastedText.trim()}
+        disabled={!pastedText.trim() || previewing}
         className="bg-gray-100 text-gray-700 rounded px-4 py-2 text-sm mb-4 disabled:opacity-50"
       >
-        Preview
+        {previewing ? 'Matching schools...' : 'Preview'}
       </button>
 
       {parsedRows.length > 0 && (
         <div className="mb-4">
+          <p className="text-xs text-gray-500 mb-2">
+            {readyCount} ready to save{errorCount > 0 ? `, ${errorCount} need attention` : ''}
+          </p>
           <table className="w-full border-collapse text-sm mb-3">
             <thead>
               <tr>
-                <th className="text-left text-xs text-gray-400 font-normal py-1">Line</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Athlete</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">School</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Gr</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Time</th>
                 <th className="text-left text-xs text-gray-400 font-normal py-1">Status</th>
               </tr>
@@ -489,12 +521,12 @@ function BulkPasteForm() {
             <tbody>
               {parsedRows.map((r) => (
                 <tr key={r.lineNumber} className={`border-t border-gray-200 ${r.error ? 'bg-red-50' : ''}`}>
-                  <td className="py-1.5">{r.lineNumber}</td>
-                  <td className="py-1.5">{r.athlete_name || '—'}</td>
-                  <td className="py-1.5">{r.school_name || '—'}</td>
-                  <td className="py-1.5">{r.time_seconds ?? '—'}</td>
+                  <td className="py-1.5">{r.athlete_name}</td>
+                  <td className="py-1.5">{r.school_name_raw}</td>
+                  <td className="py-1.5">{r.grade}</td>
+                  <td className="py-1.5">{r.time_seconds.toFixed(2)}s</td>
                   <td className="py-1.5 text-xs">
-                    {r.error ? <span className="text-red-600">{r.error}</span> : <span className="text-green-700">Ready</span>}
+                    {r.error ? <span className="text-red-600">{r.error}</span> : <span className="text-green-700">Ready ({r.classification})</span>}
                   </td>
                 </tr>
               ))}
