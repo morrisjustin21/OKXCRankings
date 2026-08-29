@@ -73,11 +73,11 @@ function Login() {
 }
 
 function AdminHome() {
-  const [tab, setTab] = useState('single') // 'single' | 'bulk' | 'schools'
+  const [tab, setTab] = useState('single') // 'single' | 'bulk' | 'schools' | 'manage'
 
   return (
     <div className="flex justify-center p-6">
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-4xl">
         <div className="flex justify-between items-baseline mb-4">
           <h1 className="text-xl font-medium m-0">Admin</h1>
           <button
@@ -99,11 +99,15 @@ function AdminHome() {
           <TabButton active={tab === 'schools'} onClick={() => setTab('schools')}>
             Schools
           </TabButton>
+          <TabButton active={tab === 'manage'} onClick={() => setTab('manage')}>
+            Manage results
+          </TabButton>
         </div>
 
         {tab === 'single' && <ResultEntryForm />}
         {tab === 'bulk' && <BulkPasteForm />}
         {tab === 'schools' && <SchoolManager />}
+        {tab === 'manage' && <ManageResults />}
       </div>
     </div>
   )
@@ -589,6 +593,38 @@ function BulkPasteForm() {
   )
 }
 
+function AliasEditor({ school, onSave, disabled }) {
+  const [value, setValue] = useState((school.aliases || []).join(', '))
+  const [dirty, setDirty] = useState(false)
+
+  return (
+    <div className="flex gap-1">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value)
+          setDirty(true)
+        }}
+        placeholder="e.g. Central HS (Marlow), Marlow"
+        disabled={disabled}
+        className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+      />
+      <button
+        type="button"
+        onClick={() => {
+          onSave(value)
+          setDirty(false)
+        }}
+        disabled={disabled || !dirty}
+        className="text-xs px-2 rounded bg-gray-100 text-gray-700 disabled:opacity-40 whitespace-nowrap"
+      >
+        Save
+      </button>
+    </div>
+  )
+}
+
 function SchoolManager() {
   const [schools, setSchools] = useState([])
   const [loading, setLoading] = useState(true)
@@ -679,13 +715,21 @@ function SchoolManager() {
 
   async function handleClassificationChange(schoolId, classification) {
     setSavingRowId(schoolId)
-    const { error: updateErr } = await supabase
+    setError('')
+    const { data, error: updateErr } = await supabase
       .from('xc_schools')
       .update({ classification })
       .eq('id', schoolId)
+      .select()
     setSavingRowId(null)
     if (updateErr) {
       setError(`Could not update classification: ${updateErr.message}`)
+      return
+    }
+    if (!data || data.length === 0) {
+      setError(
+        'Classification was not saved — this usually means the database is missing an UPDATE permission for xc_schools.'
+      )
       return
     }
     fetchSchools()
@@ -697,13 +741,21 @@ function SchoolManager() {
       .map((a) => a.trim())
       .filter(Boolean)
     setSavingRowId(schoolId)
-    const { error: updateErr } = await supabase
+    setError('')
+    const { data, error: updateErr } = await supabase
       .from('xc_schools')
       .update({ aliases })
       .eq('id', schoolId)
+      .select()
     setSavingRowId(null)
     if (updateErr) {
       setError(`Could not update aliases: ${updateErr.message}`)
+      return
+    }
+    if (!data || data.length === 0) {
+      setError(
+        'Aliases were not saved — this usually means the database is missing an UPDATE permission for xc_schools (see the SQL policy needed for this).'
+      )
       return
     }
     fetchSchools()
@@ -786,19 +838,233 @@ function SchoolManager() {
                   </select>
                 </td>
                 <td className="py-1.5 align-top">
-                  <input
-                    type="text"
-                    defaultValue={(s.aliases || []).join(', ')}
-                    onBlur={(e) => handleAliasesChange(s.id, e.target.value)}
-                    placeholder="e.g. Central HS (Marlow), Marlow"
+                  <AliasEditor
+                    school={s}
                     disabled={savingRowId === s.id}
-                    className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                    onSave={(text) => handleAliasesChange(s.id, text)}
                   />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+    </div>
+  )
+}
+
+function ManageResults() {
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [summary, setSummary] = useState('')
+  const [selected, setSelected] = useState(new Set())
+  const [deleting, setDeleting] = useState(false)
+
+  const [genderFilter, setGenderFilter] = useState('all')
+  const [classificationFilter, setClassificationFilter] = useState('all')
+  const [eventTypeFilter, setEventTypeFilter] = useState('all')
+  const [meetFilter, setMeetFilter] = useState('')
+
+  useEffect(() => {
+    fetchResults()
+  }, [genderFilter, classificationFilter, eventTypeFilter])
+
+  async function fetchResults() {
+    setLoading(true)
+    setError('')
+    let query = supabase
+      .from('xc_results')
+      .select('id, athlete_name, grade, gender, classification, event_type, time_seconds, meet_name, meet_date, xc_schools(name)')
+      .order('meet_date', { ascending: false })
+      .limit(300)
+
+    if (genderFilter !== 'all') query = query.eq('gender', genderFilter)
+    if (classificationFilter !== 'all') query = query.eq('classification', classificationFilter)
+    if (eventTypeFilter !== 'all') query = query.eq('event_type', eventTypeFilter)
+
+    const { data, error: fetchErr } = await query
+    if (fetchErr) setError(fetchErr.message)
+    setRows(data || [])
+    setSelected(new Set())
+    setLoading(false)
+  }
+
+  const visibleRows = meetFilter.trim()
+    ? rows.filter((r) => (r.meet_name || '').toLowerCase().includes(meetFilter.trim().toLowerCase()))
+    : rows
+
+  function toggleRow(id) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAllVisible() {
+    setSelected((prev) => {
+      const allSelected = visibleRows.every((r) => prev.has(r.id))
+      if (allSelected) return new Set()
+      return new Set(visibleRows.map((r) => r.id))
+    })
+  }
+
+  function formatTime(seconds) {
+    const m = Math.floor(seconds / 60)
+    const s = (seconds % 60).toFixed(2)
+    return `${m}:${s.padStart(5, '0')}`
+  }
+
+  async function handleDeleteSelected() {
+    if (selected.size === 0) return
+    const confirmed = window.confirm(
+      `Delete ${selected.size} result(s)? This can't be undone.`
+    )
+    if (!confirmed) return
+
+    setDeleting(true)
+    setError('')
+    setSummary('')
+
+    const { error: deleteErr, data } = await supabase
+      .from('xc_results')
+      .delete()
+      .in('id', Array.from(selected))
+      .select()
+
+    setDeleting(false)
+
+    if (deleteErr) {
+      setError(`Could not delete: ${deleteErr.message}`)
+      return
+    }
+    if (!data || data.length === 0) {
+      setError(
+        'Nothing was deleted — this usually means the database is missing a DELETE permission for xc_results.'
+      )
+      return
+    }
+
+    setSummary(`Deleted ${data.length} result(s).`)
+    fetchResults()
+  }
+
+  const allVisibleSelected = visibleRows.length > 0 && visibleRows.every((r) => selected.has(r.id))
+
+  return (
+    <div>
+      <div className="grid grid-cols-4 gap-2 mb-3">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Gender</label>
+          <select
+            value={genderFilter}
+            onChange={(e) => setGenderFilter(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full"
+          >
+            <option value="all">All</option>
+            <option value="boys">Boys</option>
+            <option value="girls">Girls</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Class</label>
+          <select
+            value={classificationFilter}
+            onChange={(e) => setClassificationFilter(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full"
+          >
+            <option value="all">All</option>
+            {CLASSIFICATIONS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Event type</label>
+          <select
+            value={eventTypeFilter}
+            onChange={(e) => setEventTypeFilter(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full"
+          >
+            <option value="all">All</option>
+            <option value="5K">5K</option>
+            <option value="2Mile">2 Mile</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Meet name contains</label>
+          <input
+            type="text"
+            value={meetFilter}
+            onChange={(e) => setMeetFilter(e.target.value)}
+            placeholder="e.g. Duncan Invite"
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-gray-500">
+          Showing {visibleRows.length} result(s){selected.size > 0 ? ` \u00b7 ${selected.size} selected` : ''}
+        </p>
+        <button
+          type="button"
+          onClick={handleDeleteSelected}
+          disabled={selected.size === 0 || deleting}
+          className="bg-red-600 text-white rounded px-3 py-1.5 text-xs disabled:opacity-40"
+        >
+          {deleting ? 'Deleting...' : `Delete ${selected.size || ''} selected`}
+        </button>
+      </div>
+
+      {summary && <p className="text-sm text-green-700 mb-2">{summary}</p>}
+      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading results...</p>
+      ) : visibleRows.length === 0 ? (
+        <p className="text-sm text-gray-500">No results match these filters.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr>
+                <th className="text-left py-1 w-6">
+                  <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} />
+                </th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Athlete</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">School</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Gender</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Class</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Event</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Time</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Meet</th>
+                <th className="text-left text-xs text-gray-400 font-normal py-1">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.map((r) => (
+                <tr key={r.id} className={`border-t border-gray-200 ${selected.has(r.id) ? 'bg-blue-50' : ''}`}>
+                  <td className="py-1.5">
+                    <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} />
+                  </td>
+                  <td className="py-1.5">{r.athlete_name}</td>
+                  <td className="py-1.5 text-gray-500">{r.xc_schools?.name}</td>
+                  <td className="py-1.5 capitalize">{r.gender}</td>
+                  <td className="py-1.5">{r.classification}</td>
+                  <td className="py-1.5">{r.event_type}</td>
+                  <td className="py-1.5">{formatTime(r.time_seconds)}</td>
+                  <td className="py-1.5 text-gray-500">{r.meet_name || '—'}</td>
+                  <td className="py-1.5 text-gray-500">{r.meet_date || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )
