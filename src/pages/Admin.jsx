@@ -358,6 +358,24 @@ function parseDuncanResultLine(line) {
   }
 }
 
+// Finds "Last[, more words], First" starting at tokens[1], where the last
+// name can itself be more than one word (e.g. "Soc Batz, Andrez") — some
+// rows in the same document spell a name with a space instead of a hyphen
+// inconsistently, so this can't assume the comma always lands on tokens[1].
+function splitCommaName(tokens, maxLastNameWords = 4) {
+  const limit = Math.min(maxLastNameWords, tokens.length - 2)
+  for (let end = 1; end <= limit; end++) {
+    if (tokens[end].endsWith(',')) {
+      const lastName = tokens
+        .slice(1, end + 1)
+        .join(' ')
+        .replace(/,$/, '')
+      return { lastName, firstName: tokens[end + 1], nextIndex: end + 2 }
+    }
+  }
+  return null
+}
+
 // --- Format 2: "DirectAthletics MeetPro" style -----------------------------
 // Lines like:
 //   "1 Hines, Hadley SR Yukon 1 19:32.4 --- 6:17.0 3:54.5"
@@ -372,13 +390,15 @@ function parseDAResultLine(line) {
   const tokens = line.trim().split(/\s+/)
   if (tokens.length < 9) return null
   if (!/^\d+$/.test(tokens[0])) return null
-  if (!tokens[1].endsWith(',')) return null
 
-  const lastName = tokens[1].slice(0, -1)
-  const firstName = tokens[2]
+  const nameSplit = splitCommaName(tokens)
+  if (!nameSplit) return null
+  const { lastName, firstName, nextIndex } = nameSplit
+  if (tokens.length - nextIndex < 5) return null
+
   const last5 = tokens.slice(-5)
   const timeToken = last5[1]
-  const middle = tokens.slice(3, tokens.length - 5)
+  const middle = tokens.slice(nextIndex, tokens.length - 5)
   if (middle.length === 0) return null
 
   let grade = null
@@ -399,7 +419,38 @@ function parseDAResultLine(line) {
   return { athlete_name: `${firstName} ${lastName}`.trim(), grade, school_name_raw, time_seconds }
 }
 
-// Handles both "MM:SS.s" (DirectAthletics) and "H:MM:SS.ss" (Duncan) times.
+// --- Format 3: "Hy-Tek Meet Manager" style ----------------------------------
+// Lines like:
+//   " 1 Rosales, Alexa Perryton 13:03.46 1"       (place, name, school, time, points)
+//   "23 Gonzalez, Ashley Gruver 14:43.22"          (no points column)
+//   "106 Unknown 24:45.36"                         (placeholder — excluded, no comma in name)
+// No grade/YR tag exists in this format at all. School word-count and whether
+// a trailing points column is present both vary, so instead of counting from
+// either end, the time token itself (the only one matching HH:MM.ss) is
+// located and used as the boundary between school name and place/points.
+// Section headers ("Event N Girls 3200 Meter Run CC HS GIRLS") appear BEFORE
+// their rows, same direction as the Duncan format.
+function parseHyTekResultLine(line) {
+  const tokens = line.trim().split(/\s+/)
+  if (tokens.length < 5) return null
+  if (!/^\d+$/.test(tokens[0])) return null
+
+  const nameSplit = splitCommaName(tokens)
+  if (!nameSplit) return null
+  const { lastName, firstName, nextIndex } = nameSplit
+
+  const rest = tokens.slice(nextIndex)
+  const timeIndex = rest.findIndex((t) => /^\d{1,2}:\d{2}\.\d{1,2}$/.test(t))
+  if (timeIndex <= 0) return null // need at least one school-name token before the time
+
+  const school_name_raw = rest.slice(0, timeIndex).join(' ').trim()
+  const time_seconds = parseFlexibleTime(rest[timeIndex])
+  if (time_seconds === null) return null
+
+  return { athlete_name: `${firstName} ${lastName}`.trim(), grade: null, school_name_raw, time_seconds }
+}
+
+// Handles both "MM:SS.s" (DirectAthletics/Hy-Tek) and "H:MM:SS.ss" (Duncan) times.
 function parseFlexibleTime(token) {
   const parts = token.split(':')
   if (parts.length === 2) {
@@ -416,15 +467,25 @@ function parseFlexibleTime(token) {
   return null
 }
 
-// Section headers like "...Girls" / "...Boys" carry gender; "5k" / "2 Mile"
-// carry event distance; "JH" / "Junior High" / "Middle School" mark a
-// section to exclude entirely (in addition to the numeric-grade-tag check
-// above, which alone can miss JH rows that omit their grade tag).
+// Section headers like "...Girls" / "...Boys" carry gender; "5k" / "2 Mile" /
+// "3200 Meter" (the standard metric substitute for 2 mile) carry distance;
+// "JH" / "Junior High" / "Middle School" mark a section to exclude entirely.
 const GENDER_HEADER_RE = /\b(girls|boys)\b/i
 const DA_FORMAT_HINT_RE = /directathletics|avg\.?\s*mile/i
 const JH_HEADER_RE = /\bjh\b|junior high|middle school/i
 const FIVE_K_RE = /\b5k\b/i
 const TWO_MILE_RE = /2\s*mile/i
+const THIRTY_TWO_HUNDRED_M_RE = /3200\s*meter/i
+
+function detectHeaderInfo(line) {
+  const genderMatch = line.match(GENDER_HEADER_RE)
+  const isJH = JH_HEADER_RE.test(line)
+  let eventType = null
+  if (FIVE_K_RE.test(line)) eventType = '5K'
+  else if (TWO_MILE_RE.test(line) || THIRTY_TWO_HUNDRED_M_RE.test(line)) eventType = '2Mile'
+  if (!genderMatch && !isJH && !eventType) return null
+  return { gender: genderMatch ? genderMatch[1].toLowerCase() : null, eventType, isJH }
+}
 
 function parsePastedText(rawText) {
   // Some source PDFs have a stray space before the comma in "Last , First"
@@ -441,19 +502,8 @@ function parsePastedText(rawText) {
       if (parsed && !parsed.isJuniorHigh) return { type: 'row', lineNumber: i + 1, raw: line, ...parsed }
       if (parsed && parsed.isJuniorHigh) return { type: 'skip' }
 
-      const genderMatch = line.match(GENDER_HEADER_RE)
-      const isJH = JH_HEADER_RE.test(line)
-      const is5K = FIVE_K_RE.test(line)
-      const is2Mile = TWO_MILE_RE.test(line)
-      if (genderMatch || isJH || is5K || is2Mile) {
-        return {
-          type: 'header',
-          gender: genderMatch ? genderMatch[1].toLowerCase() : null,
-          eventType: is5K ? '5K' : is2Mile ? '2Mile' : null,
-          isJH,
-        }
-      }
-      return { type: 'ignore' }
+      const info = detectHeaderInfo(line)
+      return info ? { type: 'header', ...info } : { type: 'ignore' }
     })
 
     let nextGender = null
@@ -476,19 +526,29 @@ function parsePastedText(rawText) {
     return rows.filter((r) => !r.isJH)
   }
 
-  // Duncan Invite style: section header appears BEFORE its rows, so a plain
-  // forward scan works. Event type isn't in these headers (this format is
-  // always 5K in your data so far), so it's set directly.
+  // Duncan Invite / Hy-Tek Meet Manager style: section headers appear BEFORE
+  // their rows, so a plain forward scan works. Both line formats are tried
+  // per line (they can't collide — Duncan requires a literal FR/SO/JR/SR tag
+  // that Hy-Tek lines never have). Distance defaults to 5K unless a header
+  // says otherwise, matching your Duncan data where distance is never stated.
   let currentGender = null
+  let currentEventType = '5K'
+  let currentIsJH = false
   const rows = []
   lines.forEach((line, i) => {
-    const parsed = parseDuncanResultLine(line)
+    const parsed = parseDuncanResultLine(line) || parseHyTekResultLine(line)
     if (parsed) {
-      rows.push({ lineNumber: i + 1, raw: line, gender: currentGender, eventType: '5K', ...parsed })
+      if (!currentIsJH) {
+        rows.push({ lineNumber: i + 1, raw: line, gender: currentGender, eventType: currentEventType, ...parsed })
+      }
       return
     }
-    const headerMatch = line.match(GENDER_HEADER_RE)
-    if (headerMatch) currentGender = headerMatch[1].toLowerCase()
+    const info = detectHeaderInfo(line)
+    if (info) {
+      if (info.gender) currentGender = info.gender
+      if (info.eventType) currentEventType = info.eventType
+      currentIsJH = info.isJH
+    }
   })
   return rows
 }
@@ -630,10 +690,11 @@ function BulkPasteForm() {
       </div>
       <p className="text-xs text-gray-400 mb-3">
         Paste as many sections as you want at once — boys and girls together is fine, and
-        both your Duncan-style results and DirectAthletics MeetPro reports are recognized
-        automatically. Gender and distance (5K vs 2 Mile) are read from each section's
-        header text, classification comes from each school's record in the Schools tab, and
-        junior-high/middle-school results are always skipped.
+        Duncan-style results, DirectAthletics MeetPro reports, and Hy-Tek Meet Manager
+        reports are all recognized automatically. Gender and distance (5K, 2 Mile, or the
+        equivalent 3200 Meter) are read from each section's header text, classification
+        comes from each school's record in the Schools tab, and junior-high/middle-school
+        results are always skipped.
       </p>
 
       <label className="block text-xs text-gray-500 mb-1">Paste results</label>
