@@ -32,7 +32,7 @@ export default function Rankings() {
   function formatTime(seconds) {
     const m = Math.floor(seconds / 60)
     const s = (seconds % 60).toFixed(2)
-    return \`\${m}:\${s.padStart(5, '0')}\`
+    return `${m}:${s.padStart(5, '0')}`
   }
 
   return (
@@ -61,17 +61,17 @@ export default function Rankings() {
             <div className="flex gap-1">
               <button
                 onClick={() => setGender('boys')}
-                className={\`text-sm rounded px-3 py-1 whitespace-nowrap \${
+                className={`text-sm rounded px-3 py-1 whitespace-nowrap ${
                   gender === 'boys' ? 'bg-red-950 text-red-400 font-medium' : 'text-gray-400'
-                }\`}
+                }`}
               >
                 Boys
               </button>
               <button
                 onClick={() => setGender('girls')}
-                className={\`text-sm rounded px-3 py-1 whitespace-nowrap \${
+                className={`text-sm rounded px-3 py-1 whitespace-nowrap ${
                   gender === 'girls' ? 'bg-red-950 text-red-400 font-medium' : 'text-gray-400'
-                }\`}
+                }`}
               >
                 Girls
               </button>
@@ -85,9 +85,9 @@ export default function Rankings() {
                 <button
                   key={c}
                   onClick={() => setClassification(c)}
-                  className={\`text-sm rounded px-3 py-1 whitespace-nowrap \${
+                  className={`text-sm rounded px-3 py-1 whitespace-nowrap ${
                     classification === c ? 'bg-red-950 text-red-400 font-medium' : 'text-gray-400'
-                  }\`}
+                  }`}
                 >
                   {c}
                 </button>
