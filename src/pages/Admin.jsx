@@ -570,7 +570,7 @@ function detectHeaderInfo(line) {
 const WEBSCORER_HINT_RE = /webscorer/i
 const WEBSCORER_SECTION_RE = /(\d{3,5})\s*-\s*(?:High School|Middle School)\s+(?:Boys|Girls)/g
 const WEBSCORER_ROW_RE =
-  /(\d{1,4})\s+(\d{1,5})\s+([A-Za-z.' -]{2,60}?)\s*-\s*(\d{1,2})\s+(High School|Middle School)\s+(?:Boys|Girls)\s+([MF])\s+(\d{1,2}:\d{2}\.\d)\s+(?:[+-][\d:.]+|-)/g
+  /(\d{1,4})\s+(\d{1,5})\s+([A-Za-z_.'()\s-]{2,80}?)\s*-\s*(\d{1,2})\s+(High School|Middle School)\s+(?:Boys|Girls)\s+([MF])\s+(\d{1,2}:\d{2}\.\d)\s+(?:[+-][\d:.]+|-)/g
 const WEBSCORER_DISTANCE_TO_EVENT = { 5000: '5K', 3200: '2Mile' }
 
 function parseWebscorerFormat(text) {
