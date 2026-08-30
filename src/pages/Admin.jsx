@@ -469,13 +469,69 @@ function parseFlexibleTime(token) {
 
 // Section headers like "...Girls" / "...Boys" carry gender; "5k" / "2 Mile" /
 // "3200 Meter" (the standard metric substitute for 2 mile) carry distance;
-// "JH" / "Junior High" / "Middle School" mark a section to exclude entirely.
+// "JH" / "MS" / "Junior High" / "Middle School" mark a section to exclude.
 const GENDER_HEADER_RE = /\b(girls|boys)\b/i
 const DA_FORMAT_HINT_RE = /directathletics|avg\.?\s*mile/i
-const JH_HEADER_RE = /\bjh\b|junior high|middle school/i
+const PLAIN_FORMAT_HINT_RE = /firstname\s+lastname/i
+const JH_HEADER_RE = /\bjh\b|\bms\b|junior high|middle school/i
 const FIVE_K_RE = /\b5k\b/i
 const TWO_MILE_RE = /2\s*mile/i
 const THIRTY_TWO_HUNDRED_M_RE = /3200\s*meter/i
+
+// --- Format 4: "Plain columns" style ----------------------------------------
+// Lines like:
+//   "1 Aaliyah Nix Wister 19:18.7 F 10"
+//   "44 Lora Lynn Garrison Jay 29:44.9 F 9"        (multi-word first name)
+//   "30 Alex Carmichael Cookson Hills Christian21:27.0 M 12"  (team glued to time)
+//   "99 Braelyn Devorce-FletcherPryor 33:45.9 M 10"           (name glued to team)
+// No comma anywhere, so name/team have no delimiter between them at all —
+// unlike the other formats this can't be split by position or punctuation.
+// It's resolved later, once the Schools list is available, by matching
+// whichever known school name appears at the END of the combined text
+// (this also transparently fixes the glued-together cases above, since a
+// plain string search doesn't require a preceding space).
+// Time is located by regex within the line rather than by token position,
+// since it can end up glued to the preceding word. Gender+grade often wrap
+// onto their own following line(s) in this source, so that's merged back
+// onto the row first.
+function mergeWrappedContinuationLines(lines) {
+  const merged = []
+  for (const line of lines) {
+    const isContinuation = /^[MF]$/i.test(line) || /^\d{1,2}$/.test(line) || /^[MF]\s+\d{1,2}$/i.test(line)
+    if (isContinuation && merged.length > 0) {
+      merged[merged.length - 1] += ' ' + line
+    } else {
+      merged.push(line)
+    }
+  }
+  return merged
+}
+
+function parsePlainResultLine(line) {
+  const placeMatch = line.match(/^(\d+)\s+(.*)$/)
+  if (!placeMatch) return null
+  const remainder = placeMatch[2]
+
+  const timeMatch = remainder.match(/(\d{1,2}:\d{2}\.\d{1,2})/)
+  if (!timeMatch) return null
+  const middleStr = remainder.slice(0, timeMatch.index).trim()
+  if (!middleStr) return null
+  const time_seconds = parseFlexibleTime(timeMatch[1])
+  if (time_seconds === null) return null
+
+  const afterTime = remainder.slice(timeMatch.index + timeMatch[0].length).trim()
+  const afterMatch = afterTime.match(/^([MF])\s*(\d{1,2})/i)
+  if (!afterMatch) return null
+  const gradeNum = parseInt(afterMatch[2], 10)
+
+  return {
+    needsSchoolSplit: true,
+    middleStr,
+    time_seconds,
+    grade: gradeNum >= 9 && gradeNum <= 12 ? gradeNum : null,
+    gender: afterMatch[1].toUpperCase() === 'F' ? 'girls' : 'boys',
+  }
+}
 
 function detectHeaderInfo(line) {
   const genderMatch = line.match(GENDER_HEADER_RE)
@@ -492,6 +548,42 @@ function parsePastedText(rawText) {
   // — normalize that away first so those rows don't silently fail to parse.
   const text = rawText.replace(/\s+,/g, ',')
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+
+  if (PLAIN_FORMAT_HINT_RE.test(text)) {
+    // Plain columns style: headers precede rows (forward scan), but gender
+    // and grade frequently wrap onto their own following line(s) in this
+    // source, so merge those back first.
+    const mergedLines = mergeWrappedContinuationLines(lines)
+    let currentGender = null
+    let currentEventType = null
+    let currentIsJH = false
+    const rows = []
+    mergedLines.forEach((line, i) => {
+      const parsed = parsePlainResultLine(line)
+      if (parsed) {
+        if (!currentIsJH) {
+          rows.push({
+            lineNumber: i + 1,
+            raw: line,
+            gender: parsed.gender || currentGender,
+            eventType: currentEventType,
+            grade: parsed.grade,
+            time_seconds: parsed.time_seconds,
+            needsSchoolSplit: true,
+            middleStr: parsed.middleStr,
+          })
+        }
+        return
+      }
+      const info = detectHeaderInfo(line)
+      if (info) {
+        if (info.gender) currentGender = info.gender
+        if (info.eventType) currentEventType = info.eventType
+        currentIsJH = info.isJH
+      }
+    })
+    return rows
+  }
 
   if (DA_FORMAT_HINT_RE.test(text)) {
     // DirectAthletics: each section's title appears AFTER its rows (as a
@@ -592,14 +684,23 @@ function BulkPasteForm() {
     // Map every known name variant — canonical name, its normalized form, and
     // any saved aliases (also normalized) — to the school it belongs to.
     const schoolByKey = new Map()
+    // Separately, raw (non-normalized) name/alias strings sorted longest-first,
+    // used only to split "name+team" text with no delimiter between them —
+    // matching against the un-stripped name catches teams however they're
+    // actually spelled in that source, and endsWith() works even if the
+    // school name ended up glued directly onto the preceding word.
+    const suffixCandidates = []
     for (const school of schools || []) {
       schoolByKey.set(school.name.trim().toLowerCase(), school)
       schoolByKey.set(normalizeSchoolName(school.name), school)
+      suffixCandidates.push({ key: school.name.trim().toLowerCase(), school })
       for (const alias of school.aliases || []) {
         schoolByKey.set(alias.trim().toLowerCase(), school)
         schoolByKey.set(normalizeSchoolName(alias), school)
+        suffixCandidates.push({ key: alias.trim().toLowerCase(), school })
       }
     }
+    suffixCandidates.sort((a, b) => b.key.length - a.key.length)
 
     const resolved = rawRows.map((row) => {
       if (!row.gender) {
@@ -614,6 +715,34 @@ function BulkPasteForm() {
           error: 'Distance unknown — make sure the section header ("...5k..." or "...2 Mile...") for this result was included in the paste',
         }
       }
+
+      if (row.needsSchoolSplit) {
+        const lower = row.middleStr.toLowerCase()
+        const match = suffixCandidates.find((c) => lower.endsWith(c.key))
+        if (!match) {
+          return {
+            ...row,
+            error: `Could not find a known school at the end of "${row.middleStr}" — add it (or an alias) in the Schools tab`,
+          }
+        }
+        const athlete_name = row.middleStr
+          .slice(0, row.middleStr.length - match.key.length)
+          .trim()
+          .replace(/[-,]+$/, '')
+          .trim()
+        if (!athlete_name) {
+          return { ...row, error: `Could not separate an athlete name from "${row.middleStr}"` }
+        }
+        return {
+          ...row,
+          athlete_name,
+          school_name_raw: match.school.name,
+          school_id: match.school.id,
+          classification: match.school.classification,
+          error: null,
+        }
+      }
+
       const match =
         schoolByKey.get(row.school_name_raw.trim().toLowerCase()) ||
         schoolByKey.get(normalizeSchoolName(row.school_name_raw))
@@ -689,12 +818,12 @@ function BulkPasteForm() {
         </div>
       </div>
       <p className="text-xs text-gray-400 mb-3">
-        Paste as many sections as you want at once — boys and girls together is fine, and
-        Duncan-style results, DirectAthletics MeetPro reports, and Hy-Tek Meet Manager
-        reports are all recognized automatically. Gender and distance (5K, 2 Mile, or the
-        equivalent 3200 Meter) are read from each section's header text, classification
-        comes from each school's record in the Schools tab, and junior-high/middle-school
-        results are always skipped.
+        Paste as many sections as you want at once — boys and girls together is fine.
+        Duncan-style results, DirectAthletics MeetPro, Hy-Tek Meet Manager, and plain
+        FirstName/LastName/Team/Time reports are all recognized automatically. Gender and
+        distance (5K, 2 Mile, or the equivalent 3200 Meter) are read from each section's
+        header text, classification comes from each school's record in the Schools tab, and
+        junior-high/middle-school results are always skipped.
       </p>
 
       <label className="block text-xs text-gray-500 mb-1">Paste results</label>
