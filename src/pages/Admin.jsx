@@ -50,20 +50,20 @@ function Login() {
           placeholder="you@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-2 mb-2 w-full text-sm"
+          className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-2 w-full text-sm"
         />
         <input
           type="password"
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-2 mb-2 w-full text-sm"
+          className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-2 w-full text-sm"
         />
-        {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+        {error && <p className="text-sm text-red-300 mb-2">{error}</p>}
         <button
           type="submit"
           disabled={loading}
-          className="bg-blue-700 text-white rounded px-4 py-2 text-sm w-full disabled:opacity-50"
+          className="bg-red-700 text-white rounded px-4 py-2 text-sm w-full disabled:opacity-50"
         >
           {loading ? 'Signing in...' : 'Sign in'}
         </button>
@@ -83,13 +83,13 @@ function AdminHome() {
           <button
             type="button"
             onClick={() => supabase.auth.signOut()}
-            className="text-xs text-gray-500 hover:text-blue-700"
+            className="text-xs text-gray-500 hover:text-red-400"
           >
             Sign out
           </button>
         </div>
 
-        <div className="flex gap-1 mb-5 border-b border-gray-200">
+        <div className="flex gap-1 mb-5 border-b border-gray-800">
           <TabButton active={tab === 'single'} onClick={() => setTab('single')}>
             Enter one result
           </TabButton>
@@ -118,7 +118,7 @@ function TabButton({ active, onClick, children }) {
     <button
       onClick={onClick}
       className={`text-sm px-3 py-2 border-b-2 -mb-px ${
-        active ? 'border-blue-700 text-blue-700 font-medium' : 'border-transparent text-gray-500'
+        active ? 'border-red-500 text-red-400 font-medium' : 'border-transparent text-gray-500'
       }`}
     >
       {children}
@@ -228,14 +228,14 @@ function ResultEntryForm() {
         type="text"
         value={athleteName}
         onChange={(e) => setAthleteName(e.target.value)}
-        className="border border-gray-300 rounded px-3 py-2 mb-3 w-full text-sm"
+        className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-3 w-full text-sm"
       />
 
       <label className="block text-xs text-gray-500 mb-1">School</label>
       <select
         value={schoolChoice}
         onChange={(e) => setSchoolChoice(e.target.value)}
-        className="border border-gray-300 rounded px-3 py-2 mb-2 w-full text-sm"
+        className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-2 w-full text-sm"
       >
         <option value="">Add a new school below\u2026</option>
         {schools.map((s) => (
@@ -250,7 +250,7 @@ function ResultEntryForm() {
           placeholder="New school name"
           value={newSchoolName}
           onChange={(e) => setNewSchoolName(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-2 mb-3 w-full text-sm"
+          className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-3 w-full text-sm"
         />
       )}
 
@@ -260,7 +260,7 @@ function ResultEntryForm() {
           <select
             value={grade}
             onChange={(e) => setGrade(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 w-full text-sm"
+            className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 w-full text-sm"
           >
             <option value="9">9</option>
             <option value="10">10</option>
@@ -273,7 +273,7 @@ function ResultEntryForm() {
           <select
             value={gender}
             onChange={(e) => setGender(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 w-full text-sm"
+            className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 w-full text-sm"
           >
             <option value="boys">Boys</option>
             <option value="girls">Girls</option>
@@ -284,7 +284,7 @@ function ResultEntryForm() {
           <select
             value={classification}
             onChange={(e) => setClassification(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 w-full text-sm"
+            className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 w-full text-sm"
           >
             {CLASSIFICATIONS.map((c) => (
               <option key={c} value={c}>
@@ -301,7 +301,7 @@ function ResultEntryForm() {
         placeholder="15:42.10"
         value={timeInput}
         onChange={(e) => setTimeInput(e.target.value)}
-        className="border border-gray-300 rounded px-3 py-2 mb-3 w-full text-sm"
+        className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-3 w-full text-sm"
       />
 
       <label className="block text-xs text-gray-500 mb-1">Meet name (optional)</label>
@@ -309,7 +309,7 @@ function ResultEntryForm() {
         type="text"
         value={meetName}
         onChange={(e) => setMeetName(e.target.value)}
-        className="border border-gray-300 rounded px-3 py-2 mb-3 w-full text-sm"
+        className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-3 w-full text-sm"
       />
 
       <label className="block text-xs text-gray-500 mb-1">Meet date (optional)</label>
@@ -317,16 +317,16 @@ function ResultEntryForm() {
         type="date"
         value={meetDate}
         onChange={(e) => setMeetDate(e.target.value)}
-        className="border border-gray-300 rounded px-3 py-2 mb-4 w-full text-sm"
+        className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-4 w-full text-sm"
       />
 
-      {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
-      {success && <p className="text-sm text-green-700 mb-3">{success}</p>}
+      {error && <p className="text-sm text-red-300 mb-3">{error}</p>}
+      {success && <p className="text-sm text-green-400 mb-3">{success}</p>}
 
       <button
         type="submit"
         disabled={submitting}
-        className="bg-blue-700 text-white rounded px-4 py-2 text-sm w-full disabled:opacity-50"
+        className="bg-red-700 text-white rounded px-4 py-2 text-sm w-full disabled:opacity-50"
       >
         {submitting ? 'Saving...' : 'Save result'}
       </button>
@@ -804,7 +804,7 @@ function BulkPasteForm() {
             type="text"
             value={meetName}
             onChange={(e) => setMeetName(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 w-full text-sm"
+            className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 w-full text-sm"
           />
         </div>
         <div>
@@ -813,7 +813,7 @@ function BulkPasteForm() {
             type="date"
             value={meetDate}
             onChange={(e) => setMeetDate(e.target.value)}
-            className="border border-gray-300 rounded px-3 py-2 w-full text-sm"
+            className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 w-full text-sm"
           />
         </div>
       </div>
@@ -832,14 +832,14 @@ function BulkPasteForm() {
         onChange={(e) => setPastedText(e.target.value)}
         rows={12}
         placeholder="Paste the results page here — team summaries and headers are ignored automatically."
-        className="border border-gray-300 rounded px-3 py-2 mb-3 w-full text-sm font-mono"
+        className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-3 w-full text-sm font-mono"
       />
 
       <button
         type="button"
         onClick={handlePreview}
         disabled={!pastedText.trim() || previewing}
-        className="bg-gray-100 text-gray-700 rounded px-4 py-2 text-sm mb-4 disabled:opacity-50"
+        className="bg-gray-800 text-gray-300 rounded px-4 py-2 text-sm mb-4 disabled:opacity-50"
       >
         {previewing ? 'Matching schools...' : 'Preview'}
       </button>
@@ -850,7 +850,7 @@ function BulkPasteForm() {
             {readyCount} ready to save{errorCount > 0 ? `, ${errorCount} need attention` : ''}
           </p>
           {parsedRows.some((r) => r.eventType === '2Mile') && (
-            <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 mb-2">
+            <p className="text-xs text-amber-300 bg-amber-950/40 rounded px-2 py-1.5 mb-2">
               This batch includes 2 Mile results. They'll save correctly tagged as 2 Mile, but
               won't show up on the public rankings page yet since that only displays 5K.
             </p>
@@ -869,7 +869,7 @@ function BulkPasteForm() {
             </thead>
             <tbody>
               {parsedRows.map((r) => (
-                <tr key={r.lineNumber} className={`border-t border-gray-200 ${r.error ? 'bg-red-50' : ''}`}>
+                <tr key={r.lineNumber} className={`border-t border-gray-800 ${r.error ? 'bg-red-950/40' : ''}`}>
                   <td className="py-1.5">{r.athlete_name}</td>
                   <td className="py-1.5">{r.school_name_raw}</td>
                   <td className="py-1.5">{r.grade ?? '—'}</td>
@@ -877,7 +877,7 @@ function BulkPasteForm() {
                   <td className="py-1.5">{r.eventType || '—'}</td>
                   <td className="py-1.5">{r.time_seconds.toFixed(2)}s</td>
                   <td className="py-1.5 text-xs">
-                    {r.error ? <span className="text-red-600">{r.error}</span> : <span className="text-green-700">Ready ({r.classification})</span>}
+                    {r.error ? <span className="text-red-300">{r.error}</span> : <span className="text-green-400">Ready ({r.classification})</span>}
                   </td>
                 </tr>
               ))}
@@ -888,15 +888,15 @@ function BulkPasteForm() {
             type="button"
             onClick={handleSaveAll}
             disabled={saving || parsedRows.every((r) => r.error)}
-            className="bg-blue-700 text-white rounded px-4 py-2 text-sm disabled:opacity-50"
+            className="bg-red-700 text-white rounded px-4 py-2 text-sm disabled:opacity-50"
           >
             {saving ? 'Saving...' : `Save ${parsedRows.filter((r) => !r.error).length} valid result(s)`}
           </button>
         </div>
       )}
 
-      {saveError && <p className="text-sm text-red-600 mb-3">{saveError}</p>}
-      {saveSuccess && <p className="text-sm text-green-700 mb-3">{saveSuccess}</p>}
+      {saveError && <p className="text-sm text-red-300 mb-3">{saveError}</p>}
+      {saveSuccess && <p className="text-sm text-green-400 mb-3">{saveSuccess}</p>}
     </div>
   )
 }
@@ -916,7 +916,7 @@ function AliasEditor({ school, onSave, disabled }) {
         }}
         placeholder="e.g. Central HS (Marlow), Marlow"
         disabled={disabled}
-        className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+        className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-2 py-1 text-sm w-full"
       />
       <button
         type="button"
@@ -925,7 +925,7 @@ function AliasEditor({ school, onSave, disabled }) {
           setDirty(false)
         }}
         disabled={disabled || !dirty}
-        className="text-xs px-2 rounded bg-gray-100 text-gray-700 disabled:opacity-40 whitespace-nowrap"
+        className="text-xs px-2 rounded bg-gray-800 text-gray-300 disabled:opacity-40 whitespace-nowrap"
       >
         Save
       </button>
@@ -1076,7 +1076,7 @@ function SchoolManager() {
         <select
           value={defaultClassification}
           onChange={(e) => setDefaultClassification(e.target.value)}
-          className="border border-gray-300 rounded px-3 py-2 text-sm mb-2 w-40"
+          className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 text-sm mb-2 w-40"
         >
           {CLASSIFICATIONS.map((c) => (
             <option key={c} value={c}>
@@ -1091,7 +1091,7 @@ function SchoolManager() {
           onChange={(e) => setBulkNames(e.target.value)}
           rows={6}
           placeholder={'Duncan\nArdmore\nElk City, 4A'}
-          className="border border-gray-300 rounded px-3 py-2 mb-1 w-full text-sm font-mono"
+          className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-1 w-full text-sm font-mono"
         />
         <p className="text-xs text-gray-400 mb-3">
           Every line uses the classification above by default. Add a comma and a different
@@ -1101,14 +1101,14 @@ function SchoolManager() {
         <button
           type="submit"
           disabled={adding || !bulkNames.trim()}
-          className="bg-blue-700 text-white rounded px-4 py-2 text-sm disabled:opacity-50"
+          className="bg-red-700 text-white rounded px-4 py-2 text-sm disabled:opacity-50"
         >
           {adding ? 'Adding...' : 'Add schools'}
         </button>
       </form>
 
-      {summary && <p className="text-sm text-green-700 mb-3">{summary}</p>}
-      {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+      {summary && <p className="text-sm text-green-400 mb-3">{summary}</p>}
+      {error && <p className="text-sm text-red-300 mb-3">{error}</p>}
 
       <p className="text-xs text-gray-400 mb-2">
         "Duncan" already matches "Duncan High School" automatically in pasted results. Use
@@ -1129,14 +1129,14 @@ function SchoolManager() {
           </thead>
           <tbody>
             {schools.map((s) => (
-              <tr key={s.id} className="border-t border-gray-200">
+              <tr key={s.id} className="border-t border-gray-800">
                 <td className="py-1.5 align-top">{s.name}</td>
                 <td className="py-1.5 align-top">
                   <select
                     value={s.classification}
                     onChange={(e) => handleClassificationChange(s.id, e.target.value)}
                     disabled={savingRowId === s.id}
-                    className="border border-gray-300 rounded px-2 py-1 text-sm"
+                    className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-2 py-1 text-sm"
                   >
                     {CLASSIFICATIONS.map((c) => (
                       <option key={c} value={c}>
@@ -1269,7 +1269,7 @@ function ManageResults() {
           <select
             value={genderFilter}
             onChange={(e) => setGenderFilter(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full"
+            className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-2 py-1.5 text-sm w-full"
           >
             <option value="all">All</option>
             <option value="boys">Boys</option>
@@ -1281,7 +1281,7 @@ function ManageResults() {
           <select
             value={classificationFilter}
             onChange={(e) => setClassificationFilter(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full"
+            className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-2 py-1.5 text-sm w-full"
           >
             <option value="all">All</option>
             {CLASSIFICATIONS.map((c) => (
@@ -1296,7 +1296,7 @@ function ManageResults() {
           <select
             value={eventTypeFilter}
             onChange={(e) => setEventTypeFilter(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full"
+            className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-2 py-1.5 text-sm w-full"
           >
             <option value="all">All</option>
             <option value="5K">5K</option>
@@ -1310,7 +1310,7 @@ function ManageResults() {
             value={meetFilter}
             onChange={(e) => setMeetFilter(e.target.value)}
             placeholder="e.g. Duncan Invite"
-            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-full"
+            className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-2 py-1.5 text-sm w-full"
           />
         </div>
       </div>
@@ -1329,8 +1329,8 @@ function ManageResults() {
         </button>
       </div>
 
-      {summary && <p className="text-sm text-green-700 mb-2">{summary}</p>}
-      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+      {summary && <p className="text-sm text-green-400 mb-2">{summary}</p>}
+      {error && <p className="text-sm text-red-300 mb-2">{error}</p>}
 
       {loading ? (
         <p className="text-sm text-gray-500">Loading results...</p>
@@ -1356,7 +1356,7 @@ function ManageResults() {
             </thead>
             <tbody>
               {visibleRows.map((r) => (
-                <tr key={r.id} className={`border-t border-gray-200 ${selected.has(r.id) ? 'bg-blue-50' : ''}`}>
+                <tr key={r.id} className={`border-t border-gray-800 ${selected.has(r.id) ? 'bg-red-950/40' : ''}`}>
                   <td className="py-1.5">
                     <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} />
                   </td>
