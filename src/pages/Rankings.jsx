@@ -32,132 +32,129 @@ export default function Rankings() {
   function formatTime(seconds) {
     const m = Math.floor(seconds / 60)
     const s = (seconds % 60).toFixed(2)
-    return `${m}:${s.padStart(5, '0')}`
+    return \`\${m}:\${s.padStart(5, '0')}\`
   }
 
   return (
-    <div className="flex justify-center p-6 print:p-0">
+    <div className="flex justify-center p-6 print:p-0 print:bg-white">
       <div className="w-full max-w-3xl">
         {/* Header band (screen only) */}
-        <div className="bg-blue-50 rounded-xl px-5 py-4 mb-4 print:hidden">
-          <p className="text-xs text-blue-700 mb-0.5">Oklahoma</p>
-          <h1 className="text-xl font-medium text-blue-700 m-0">Cross country rankings</h1>
+        <div className="bg-red-950/40 border border-red-900/40 rounded-xl px-5 py-4 mb-4 print:hidden">
+          <p className="text-xs text-red-400 mb-0.5">Oklahoma</p>
+          <h1 className="text-xl font-medium text-red-400 m-0">Cross country rankings</h1>
         </div>
 
-        {/* Print-only header — the sidebar filters are hidden when printing,
-            so restate what's being printed here since it won't otherwise
-            be visible on the page. */}
+        {/* Print-only header — filters are hidden when printing, so restate
+            what's being printed here since it won't otherwise be visible. */}
         <div className="hidden print:block mb-4">
           <p className="text-xs text-gray-500 mb-0.5">Oklahoma Cross Country Rankings</p>
-          <h1 className="text-xl font-medium m-0">
+          <h1 className="text-xl font-medium m-0 text-black">
             {gender === 'boys' ? 'Boys' : 'Girls'} {classification} · 5K
           </h1>
           <p className="text-xs text-gray-500 mt-1">Printed {new Date().toLocaleDateString()}</p>
         </div>
 
-        <div className="flex flex-col sm:grid sm:grid-cols-[140px_1fr] gap-4">
-          {/* Sidebar filters (screen only) */}
-          <div className="print:hidden sm:border-r border-gray-200 sm:pr-4 pb-3 sm:pb-0 border-b sm:border-b-0 border-gray-200">
-            <div className="flex sm:block gap-4 sm:gap-0">
-              <div>
-                <p className="text-xs text-gray-400 mb-2">Gender</p>
-                <div className="flex sm:block gap-1">
-                  <button
-                    onClick={() => setGender('boys')}
-                    className={`text-left text-sm rounded px-2 py-1 mb-1 whitespace-nowrap ${
-                      gender === 'boys' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500'
-                    }`}
-                  >
-                    Boys
-                  </button>
-                  <button
-                    onClick={() => setGender('girls')}
-                    className={`text-left text-sm rounded px-2 py-1 mb-1 sm:mb-4 whitespace-nowrap ${
-                      gender === 'girls' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500'
-                    }`}
-                  >
-                    Girls
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs text-gray-400 mb-2">Class</p>
-                <div className="flex sm:block flex-wrap gap-1">
-                  {CLASSIFICATIONS.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setClassification(c)}
-                      className={`text-left text-sm rounded px-2 py-1 mb-1 whitespace-nowrap ${
-                        classification === c ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500'
-                      }`}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              </div>
+        {/* Filter bar (screen only) */}
+        <div className="print:hidden flex flex-wrap items-center gap-x-6 gap-y-3 pb-4 mb-4 border-b border-gray-800">
+          <div>
+            <p className="text-xs text-gray-500 mb-1.5">Gender</p>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setGender('boys')}
+                className={\`text-sm rounded px-3 py-1 whitespace-nowrap \${
+                  gender === 'boys' ? 'bg-red-950 text-red-400 font-medium' : 'text-gray-400'
+                }\`}
+              >
+                Boys
+              </button>
+              <button
+                onClick={() => setGender('girls')}
+                className={\`text-sm rounded px-3 py-1 whitespace-nowrap \${
+                  gender === 'girls' ? 'bg-red-950 text-red-400 font-medium' : 'text-gray-400'
+                }\`}
+              >
+                Girls
+              </button>
             </div>
           </div>
 
-          {/* Results table */}
-          <div className="min-w-0">
-            <div className="flex items-baseline justify-between mb-2 print:hidden">
-              <h2 className="text-base font-medium m-0">
-                {gender === 'boys' ? 'Boys' : 'Girls'} {classification} · 5K
-              </h2>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-400">Top 50</span>
+          <div>
+            <p className="text-xs text-gray-500 mb-1.5">Class</p>
+            <div className="flex flex-wrap gap-1">
+              {CLASSIFICATIONS.map((c) => (
                 <button
-                  onClick={() => window.print()}
-                  className="text-xs text-blue-700 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50"
+                  key={c}
+                  onClick={() => setClassification(c)}
+                  className={\`text-sm rounded px-3 py-1 whitespace-nowrap \${
+                    classification === c ? 'bg-red-950 text-red-400 font-medium' : 'text-gray-400'
+                  }\`}
                 >
-                  Print
+                  {c}
                 </button>
-              </div>
+              ))}
             </div>
-
-            {loading ? (
-              <p className="text-sm text-gray-500">Loading...</p>
-            ) : results.length === 0 ? (
-              <p className="text-sm text-gray-500">No results yet for this category.</p>
-            ) : (
-              <div className="overflow-x-auto -mx-1 px-1 print:overflow-visible print:mx-0 print:px-0">
-                <table className="border-collapse min-w-[560px] w-full print:min-w-0">
-                  <thead>
-                    <tr>
-                      <th className="text-left text-xs text-gray-400 font-normal py-1 pr-2 w-6 print:text-black">#</th>
-                      <th className="text-left text-xs text-gray-400 font-normal py-1 pr-2 print:text-black">Athlete</th>
-                      <th className="text-left text-xs text-gray-400 font-normal py-1 pr-2 print:text-black">School</th>
-                      <th className="text-left text-xs text-gray-400 font-normal py-1 pr-2 w-9 print:text-black">Gr</th>
-                      <th className="text-right text-xs text-gray-400 font-normal py-1 pr-2 w-[70px] print:text-black">
-                        Time
-                      </th>
-                      <th className="text-left text-xs text-gray-400 font-normal py-1 print:text-black">Meet</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.map((r, i) => (
-                      <tr key={r.id} className="border-t border-gray-200 print:break-inside-avoid">
-                        <td className="py-1.5 text-sm pr-2 whitespace-nowrap">{i + 1}</td>
-                        <td className="py-1.5 text-sm pr-2 whitespace-nowrap">{r.athlete_name}</td>
-                        <td className="py-1.5 text-sm text-gray-500 pr-2 whitespace-nowrap print:text-black">
-                          {r.xc_schools?.name}
-                        </td>
-                        <td className="py-1.5 text-sm pr-2 whitespace-nowrap">{r.grade}</td>
-                        <td className="py-1.5 text-sm text-right font-medium pr-2 whitespace-nowrap">
-                          {formatTime(r.time_seconds)}
-                        </td>
-                        <td className="py-1.5 text-sm text-gray-500 whitespace-nowrap max-w-[160px] truncate print:text-black print:max-w-none print:whitespace-normal">
-                          {r.meet_name || '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
+        </div>
+
+        {/* Results table */}
+        <div className="min-w-0">
+          <div className="flex items-baseline justify-between mb-2 print:hidden">
+            <h2 className="text-base font-medium m-0 text-gray-100">
+              {gender === 'boys' ? 'Boys' : 'Girls'} {classification} · 5K
+            </h2>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-500">Top 50</span>
+              <button
+                onClick={() => window.print()}
+                className="text-xs text-red-400 border border-red-900/50 rounded px-2 py-1 hover:bg-red-950/40"
+              >
+                Print
+              </button>
+            </div>
+          </div>
+
+          {loading ? (
+            <p className="text-sm text-gray-500">Loading...</p>
+          ) : results.length === 0 ? (
+            <p className="text-sm text-gray-500">No results yet for this category.</p>
+          ) : (
+            <div className="overflow-x-auto -mx-1 px-1 print:overflow-visible print:mx-0 print:px-0">
+              <table className="border-collapse min-w-[560px] w-full print:min-w-0">
+                <thead>
+                  <tr>
+                    <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2 w-6 print:text-black">#</th>
+                    <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2 print:text-black">Athlete</th>
+                    <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2 print:text-black">School</th>
+                    <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2 w-9 print:text-black">Gr</th>
+                    <th className="text-right text-xs text-gray-500 font-normal py-1 pr-2 w-[70px] print:text-black">
+                      Time
+                    </th>
+                    <th className="text-left text-xs text-gray-500 font-normal py-1 print:text-black">Meet</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((r, i) => (
+                    <tr key={r.id} className="border-t border-gray-800 print:border-gray-300 print:break-inside-avoid">
+                      <td className="py-1.5 text-sm pr-2 whitespace-nowrap text-gray-100 print:text-black">{i + 1}</td>
+                      <td className="py-1.5 text-sm pr-2 whitespace-nowrap text-gray-100 print:text-black">
+                        {r.athlete_name}
+                      </td>
+                      <td className="py-1.5 text-sm text-gray-400 pr-2 whitespace-nowrap print:text-black">
+                        {r.xc_schools?.name}
+                      </td>
+                      <td className="py-1.5 text-sm pr-2 whitespace-nowrap text-gray-100 print:text-black">{r.grade}</td>
+                      <td className="py-1.5 text-sm text-right font-medium pr-2 whitespace-nowrap text-gray-100 print:text-black">
+                        {formatTime(r.time_seconds)}
+                      </td>
+                      <td className="py-1.5 text-sm text-gray-400 whitespace-nowrap max-w-[160px] truncate print:text-black print:max-w-none print:whitespace-normal">
+                        {r.meet_name || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </div>
