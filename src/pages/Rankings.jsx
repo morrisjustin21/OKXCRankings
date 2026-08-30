@@ -101,6 +101,7 @@ export default function Rankings() {
                     <th className="text-left text-xs text-gray-400 font-normal py-1">School</th>
                     <th className="text-left text-xs text-gray-400 font-normal py-1 w-9">Gr</th>
                     <th className="text-right text-xs text-gray-400 font-normal py-1 w-[70px]">Time</th>
+                    <th className="text-left text-xs text-gray-400 font-normal py-1">Meet</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -111,6 +112,7 @@ export default function Rankings() {
                       <td className="py-1.5 text-sm text-gray-500">{r.xc_schools?.name}</td>
                       <td className="py-1.5 text-sm">{r.grade}</td>
                       <td className="py-1.5 text-sm text-right font-medium">{formatTime(r.time_seconds)}</td>
+                      <td className="py-1.5 text-sm text-gray-500 truncate">{r.meet_name || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
