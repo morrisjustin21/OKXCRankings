@@ -3,6 +3,14 @@ import { supabase } from '../supabaseClient'
 
 const CLASSIFICATIONS = ['6A', '5A', '4A', '3A', '2A', 'A']
 
+// Times are always stored in the database as total seconds (for correct
+// sorting), but should always be displayed as mm:ss.ss — this converts back.
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60)
+  const s = (seconds % 60).toFixed(2)
+  return `${m}:${s.padStart(5, '0')}`
+}
+
 export default function Admin() {
   const [session, setSession] = useState(null)
   const [checkingSession, setCheckingSession] = useState(true)
@@ -543,7 +551,72 @@ function detectHeaderInfo(line) {
   return { gender: genderMatch ? genderMatch[1].toLowerCase() : null, eventType, isJH }
 }
 
+// --- Format 5: "Webscorer" style --------------------------------------------
+// Rows like:
+//   "1 1658 Morgan Brown Sulphur - 12 High School Boys M 17:10.3 -"
+//   "10 1296 Collin Garner Lone Grove - 9 High School Boys M 19:25.4 +2:15.1"
+// This source is sometimes copied with NO line breaks at all — the whole
+// results table lands as one continuous block of text alongside page
+// headers, dates, and a source URL. Per-line parsing can't work here, so
+// this scans the raw text directly for the row pattern wherever it occurs;
+// junk in between (dates, "Place Bib Name..." column headers, page numbers,
+// the webscorer.com URL) simply won't match and is skipped automatically.
+// Name and team have no delimiter between them ("Morgan Brown Sulphur"), so
+// — same as the Plain format — that split is deferred to preview time
+// against the Schools list. Distance ("5000" meters = 5K) comes from a
+// "<distance> - High School Boys" section title elsewhere in the text;
+// gender and JH/HS come straight from each row's own Category field, which
+// is more reliable here than relying on section headers.
+const WEBSCORER_HINT_RE = /webscorer/i
+const WEBSCORER_SECTION_RE = /(\d{3,5})\s*-\s*(?:High School|Middle School)\s+(?:Boys|Girls)/g
+const WEBSCORER_ROW_RE =
+  /(\d{1,4})\s+(\d{1,5})\s+([A-Za-z.' -]{2,60}?)\s*-\s*(\d{1,2})\s+(High School|Middle School)\s+(?:Boys|Girls)\s+([MF])\s+(\d{1,2}:\d{2}\.\d)\s+(?:[+-][\d:.]+|-)/g
+const WEBSCORER_DISTANCE_TO_EVENT = { 5000: '5K', 3200: '2Mile' }
+
+function parseWebscorerFormat(text) {
+  const sections = []
+  let m
+  const sectionRe = new RegExp(WEBSCORER_SECTION_RE)
+  while ((m = sectionRe.exec(text))) {
+    sections.push({ index: m.index, distance: m[1] })
+  }
+
+  const rows = []
+  const rowRe = new RegExp(WEBSCORER_ROW_RE)
+  while ((m = rowRe.exec(text))) {
+    const [, , , blob, gradeStr, level, genderLetter, timeStr] = m
+    if (/middle school/i.test(level)) continue // JH/MS excluded outright
+
+    const time_seconds = parseFlexibleTime(timeStr)
+    if (time_seconds === null) continue
+    const grade = parseInt(gradeStr, 10)
+
+    let distance = null
+    for (const s of sections) {
+      if (s.index <= m.index) distance = s.distance
+      else break
+    }
+
+    rows.push({
+      lineNumber: rows.length + 1,
+      needsSchoolSplit: true,
+      middleStr: blob.trim(),
+      grade: grade >= 9 && grade <= 12 ? grade : null,
+      gender: genderLetter.toUpperCase() === 'F' ? 'girls' : 'boys',
+      eventType: WEBSCORER_DISTANCE_TO_EVENT[distance] || null,
+      time_seconds,
+    })
+  }
+  return rows
+}
+
 function parsePastedText(rawText) {
+  if (WEBSCORER_HINT_RE.test(rawText)) {
+    // This source can arrive with no line breaks at all, so it parses the
+    // raw text directly rather than going through the line-based paths below.
+    return parseWebscorerFormat(rawText)
+  }
+
   // Some source PDFs have a stray space before the comma in "Last , First"
   // — normalize that away first so those rows don't silently fail to parse.
   const text = rawText.replace(/\s+,/g, ',')
@@ -875,7 +948,7 @@ function BulkPasteForm() {
                   <td className="py-1.5">{r.grade ?? '—'}</td>
                   <td className="py-1.5 capitalize">{r.gender || '—'}</td>
                   <td className="py-1.5">{r.eventType || '—'}</td>
-                  <td className="py-1.5">{r.time_seconds.toFixed(2)}s</td>
+                  <td className="py-1.5">{formatTime(r.time_seconds)}</td>
                   <td className="py-1.5 text-xs">
                     {r.error ? <span className="text-red-300">{r.error}</span> : <span className="text-green-400">Ready ({r.classification})</span>}
                   </td>
@@ -1217,12 +1290,6 @@ function ManageResults() {
       if (allSelected) return new Set()
       return new Set(visibleRows.map((r) => r.id))
     })
-  }
-
-  function formatTime(seconds) {
-    const m = Math.floor(seconds / 60)
-    const s = (seconds % 60).toFixed(2)
-    return `${m}:${s.padStart(5, '0')}`
   }
 
   async function handleDeleteSelected() {
