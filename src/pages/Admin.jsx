@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { standardEventType, eventTypeLabel } from '../eventTypeRules'
 
 const CLASSIFICATIONS = ['6A', '5A', '4A', '3A', '2A', 'A']
 
@@ -211,7 +212,7 @@ function ResultEntryForm() {
       grade: parseInt(grade, 10),
       gender,
       classification,
-      event_type: '5K',
+      event_type: standardEventType(gender, classification),
       time_seconds: timeSeconds,
       meet_name: meetName.trim() || null,
       meet_date: meetDate || null,
@@ -303,7 +304,12 @@ function ResultEntryForm() {
         </div>
       </div>
 
-      <label className="block text-xs text-gray-500 mb-1">Time (mm:ss.ss)</label>
+      <div className="flex items-center justify-between mb-1">
+        <label className="block text-xs text-gray-500">Time (mm:ss.ss)</label>
+        <span className="text-xs text-gray-500">
+          Recording as <span className="text-red-400">{eventTypeLabel(standardEventType(gender, classification))}</span>
+        </span>
+      </div>
       <input
         type="text"
         placeholder="15:42.10"
@@ -554,7 +560,7 @@ function detectHeaderInfo(line) {
 // --- Format 5: "Webscorer" style --------------------------------------------
 // Rows like:
 //   "1 1658 Morgan Brown Sulphur - 12 High School Boys M 17:10.3 -"
-//   "10 1296 Collin Garner Lone Grove - 9 High School Boys M 19:25.4 +2:15.1"
+//   "1 2176 Miles Occhiuzzo Chisholm - 12 3-4A Boys M 16:23.01 -"
 // This source is sometimes copied with NO line breaks at all — the whole
 // results table lands as one continuous block of text alongside page
 // headers, dates, and a source URL. Per-line parsing can't work here, so
@@ -564,13 +570,16 @@ function detectHeaderInfo(line) {
 // Name and team have no delimiter between them ("Morgan Brown Sulphur"), so
 // — same as the Plain format — that split is deferred to preview time
 // against the Schools list. Distance ("5000" meters = 5K) comes from a
-// "<distance> - High School Boys" section title elsewhere in the text;
-// gender and JH/HS come straight from each row's own Category field, which
-// is more reliable here than relying on section headers.
+// "<distance> - <category label> Boys/Girls" section title elsewhere in the
+// text. The category label itself varies by meet — "High School Boys",
+// "3-4A Boys" (a combined-classification race), etc. — so it isn't matched
+// literally; only whether it mentions middle/junior high matters, to
+// exclude those rows. Gender comes from each row's own Gender (M/F) field.
 const WEBSCORER_HINT_RE = /webscorer/i
-const WEBSCORER_SECTION_RE = /(\d{3,5})\s*-\s*(?:High School|Middle School)\s+(?:Boys|Girls)/g
+const WEBSCORER_JH_RE = /\bms\b|middle school|junior high|\bjh\b/i
+const WEBSCORER_SECTION_RE = /(\d{3,5})\s*-\s*[A-Za-z0-9-\s]{1,30}?\s+(?:Boys|Girls)/g
 const WEBSCORER_ROW_RE =
-  /(\d{1,4})\s+(\d{1,5})\s+([A-Za-z_.'()\s-]{2,80}?)\s*-\s*(\d{1,2})\s+(High School|Middle School)\s+(?:Boys|Girls)\s+([MF])\s+(\d{1,2}:\d{2}\.\d)\s+(?:[+-][\d:.]+|-)/g
+  /(\d{1,4})\s+(\d{1,5})\s+([A-Za-z_.'()\s-]{2,80}?)\s*-\s*(\d{1,2})\s+([A-Za-z0-9-\s]{1,30}?)\s+(?:Boys|Girls)\s+([MF])\s+(\d{1,2}:\d{2}\.\d{1,2})\s+(?:[+-][\d:.]+|-)?/g
 const WEBSCORER_DISTANCE_TO_EVENT = { 5000: '5K', 3200: '2Mile' }
 
 function parseWebscorerFormat(text) {
@@ -584,8 +593,8 @@ function parseWebscorerFormat(text) {
   const rows = []
   const rowRe = new RegExp(WEBSCORER_ROW_RE)
   while ((m = rowRe.exec(text))) {
-    const [, , , blob, gradeStr, level, genderLetter, timeStr] = m
-    if (/middle school/i.test(level)) continue // JH/MS excluded outright
+    const [, , , blob, gradeStr, categoryLabel, genderLetter, timeStr] = m
+    if (WEBSCORER_JH_RE.test(categoryLabel)) continue // JH/MS excluded outright
 
     const time_seconds = parseFlexibleTime(timeStr)
     if (time_seconds === null) continue
