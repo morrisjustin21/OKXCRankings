@@ -157,12 +157,21 @@ function ResultEntryForm() {
   const [grade, setGrade] = useState('9')
   const [gender, setGender] = useState('boys')
   const [classification, setClassification] = useState('5A')
+  const [eventTypeChoice, setEventTypeChoice] = useState(() => standardEventType('boys', '5A'))
+  const [eventTypeTouched, setEventTypeTouched] = useState(false)
   const [timeInput, setTimeInput] = useState('')
   const [meetName, setMeetName] = useState('')
   const [meetDate, setMeetDate] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  // The dropdown defaults to whatever's standard for the selected
+  // gender/classification, but only until the person manually picks a value
+  // — after that, changing gender/class won't silently overwrite their choice.
+  useEffect(() => {
+    if (!eventTypeTouched) setEventTypeChoice(standardEventType(gender, classification))
+  }, [gender, classification, eventTypeTouched])
 
   useEffect(() => {
     fetchSchools()
@@ -216,7 +225,7 @@ function ResultEntryForm() {
       grade: parseInt(grade, 10),
       gender,
       classification,
-      event_type: standardEventType(gender, classification),
+      event_type: eventTypeChoice,
       time_seconds: timeSeconds,
       meet_name: meetName.trim() || null,
       meet_date: meetDate || null,
@@ -309,11 +318,29 @@ function ResultEntryForm() {
       </div>
 
       <div className="flex items-center justify-between mb-1">
-        <label className="block text-xs text-gray-500">Time (mm:ss.ss)</label>
-        <span className="text-xs text-gray-500">
-          Recording as <span className="text-red-400">{eventTypeLabel(standardEventType(gender, classification))}</span>
-        </span>
+        <label className="block text-xs text-gray-500">Distance</label>
+        {!eventTypeTouched && <span className="text-xs text-gray-600">Standard for {classification} {gender}</span>}
       </div>
+      <select
+        value={eventTypeChoice}
+        onChange={(e) => {
+          setEventTypeChoice(e.target.value)
+          setEventTypeTouched(true)
+        }}
+        className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-2 mb-3 w-full text-sm"
+      >
+        <option value="5K">{eventTypeLabel('5K')}</option>
+        <option value="2Mile">{eventTypeLabel('2Mile')}</option>
+      </select>
+      {eventTypeTouched && eventTypeChoice !== standardEventType(gender, classification) && (
+        <p className="text-xs text-amber-300 bg-amber-950/40 rounded px-2 py-1.5 mb-3">
+          ⚠ {classification} {gender} normally runs {eventTypeLabel(standardEventType(gender, classification))}. This
+          result will save as {eventTypeLabel(eventTypeChoice)} and won't appear on the public rankings page for that
+          combination — only if you're certain this race was actually run at this distance.
+        </p>
+      )}
+
+      <label className="block text-xs text-gray-500 mb-1">Time (mm:ss.ss)</label>
       <input
         type="text"
         placeholder="15:42.10"
