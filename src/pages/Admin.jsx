@@ -1012,15 +1012,19 @@ function BulkPasteForm() {
     // distance against what's standard for that combination. A mismatch
     // (e.g. a 5A girls result tagged 3200m/2Mile, or vice versa) will never
     // appear on the public rankings page — that page only ever queries the
-    // one standard distance for a given gender/classification — so surface
-    // it as an error here rather than letting it save invisibly.
+    // one standard distance for a given gender/classification — so it's
+    // blocked by default, but each row can be individually accepted below
+    // in case the source data is right and it's just a genuinely
+    // non-standard race (an exhibition distance, etc).
     const withDistanceCheck = resolved.map((row) => {
       if (row.error || !row.classification) return row
       const expected = standardEventType(row.gender, row.classification)
       if (row.eventType !== expected) {
         return {
           ...row,
-          error: `Non-standard distance: ${row.classification} ${row.gender} normally runs ${expected === '2Mile' ? '3200m' : '5K'}, but this result is tagged ${row.eventType === '2Mile' ? '3200m' : row.eventType}. It would save but never appear in rankings — fix the source data or confirm this is intentional before saving elsewhere.`,
+          distanceMismatch: true,
+          expectedEventType: expected,
+          error: `Non-standard distance: ${row.classification} ${row.gender} normally runs ${eventTypeLabel(expected)}, but this result is tagged ${eventTypeLabel(row.eventType)}. It won't appear in rankings unless accepted below.`,
         }
       }
       return row
@@ -1028,6 +1032,12 @@ function BulkPasteForm() {
 
     setParsedRows(withDistanceCheck)
     setPreviewing(false)
+  }
+
+  function handleAcceptMismatch(lineNumber) {
+    setParsedRows((prev) =>
+      prev.map((r) => (r.lineNumber === lineNumber ? { ...r, error: null, distanceOverridden: true } : r))
+    )
   }
 
   async function handleSaveAll() {
@@ -1137,7 +1147,10 @@ function BulkPasteForm() {
             </thead>
             <tbody>
               {parsedRows.map((r) => (
-                <tr key={r.lineNumber} className={`border-t border-gray-800 ${r.error ? 'bg-red-950/40' : ''}`}>
+                <tr
+                  key={r.lineNumber}
+                  className={`border-t border-gray-800 ${r.error ? 'bg-red-950/40' : r.distanceOverridden ? 'bg-amber-950/30' : ''}`}
+                >
                   <td className="py-1.5">{r.athlete_name}</td>
                   <td className="py-1.5">{r.school_name_raw}</td>
                   <td className="py-1.5">{r.grade ?? '—'}</td>
@@ -1145,7 +1158,26 @@ function BulkPasteForm() {
                   <td className="py-1.5">{r.eventType || '—'}</td>
                   <td className="py-1.5">{formatTime(r.time_seconds)}</td>
                   <td className="py-1.5 text-xs">
-                    {r.error ? <span className="text-red-300">{r.error}</span> : <span className="text-green-400">Ready ({r.classification})</span>}
+                    {r.error ? (
+                      <div>
+                        <span className="text-red-300">{r.error}</span>
+                        {r.distanceMismatch && (
+                          <button
+                            type="button"
+                            onClick={() => handleAcceptMismatch(r.lineNumber)}
+                            className="block mt-1 text-amber-300 border border-amber-800/60 rounded px-2 py-0.5 hover:bg-amber-950/40"
+                          >
+                            Accept {eventTypeLabel(r.eventType)} anyway
+                          </button>
+                        )}
+                      </div>
+                    ) : r.distanceOverridden ? (
+                      <span className="text-amber-300">
+                        Ready ({r.classification}, non-standard {eventTypeLabel(r.eventType)} accepted)
+                      </span>
+                    ) : (
+                      <span className="text-green-400">Ready ({r.classification})</span>
+                    )}
                   </td>
                 </tr>
               ))}
