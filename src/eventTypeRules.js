@@ -11,5 +11,5 @@ export function standardEventType(gender, classification) {
 }
 
 export function eventTypeLabel(eventType) {
-  return eventType === '2Mile' ? '2 Mile' : '5K'
+  return eventType === '2Mile' ? '3200m' : '5K'
 }
