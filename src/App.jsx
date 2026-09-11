@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import Rankings from './pages/Rankings.jsx'
+import TeamRankings from './pages/TeamRankings.jsx'
 import Admin from './pages/Admin.jsx'
 
 export default function App() {
@@ -11,6 +12,9 @@ export default function App() {
             <Link to="/" className="text-sm text-gray-400 hover:text-red-400">
               Rankings
             </Link>
+            <Link to="/teams" className="text-sm text-gray-400 hover:text-red-400">
+              Team Rankings
+            </Link>
             <Link to="/admin" className="text-sm text-gray-400 hover:text-red-400">
               Admin
             </Link>
@@ -19,6 +23,7 @@ export default function App() {
 
         <Routes>
           <Route path="/" element={<Rankings />} />
+          <Route path="/teams" element={<TeamRankings />} />
           <Route path="/admin" element={<Admin />} />
         </Routes>
       </div>
