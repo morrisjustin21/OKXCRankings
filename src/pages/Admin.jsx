@@ -838,11 +838,23 @@ function normalizeSchoolName(name) {
     .trim()
 }
 
+// Purely for the "detected format" label shown in the preview — mirrors the
+// same fingerprint checks parsePastedText uses, in the same priority order,
+// so what's displayed always matches what actually parsed the text.
+function detectFormatName(text) {
+  if (WEBSCORER_HINT_RE.test(text)) return 'Webscorer'
+  if (FIXED_WIDTH_HINT_RE.test(text)) return 'Fixed-width report'
+  if (PLAIN_FORMAT_HINT_RE.test(text)) return 'Plain columns (FirstName LastName)'
+  if (DA_FORMAT_HINT_RE.test(text)) return 'DirectAthletics MeetPro'
+  return 'Duncan-style / Hy-Tek Meet Manager'
+}
+
 function BulkPasteForm() {
   const [pastedText, setPastedText] = useState('')
   const [meetName, setMeetName] = useState('')
   const [meetDate, setMeetDate] = useState('')
   const [parsedRows, setParsedRows] = useState([])
+  const [detectedFormat, setDetectedFormat] = useState('')
   const [previewing, setPreviewing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -857,6 +869,7 @@ function BulkPasteForm() {
     setSaveError('')
     setSaveSuccess('')
     setPreviewing(true)
+    setDetectedFormat(detectFormatName(pastedText))
 
     const rawRows = parsePastedText(pastedText)
     const { data: schools } = await supabase.from('xc_schools').select('id, name, classification, aliases')
@@ -1026,6 +1039,9 @@ function BulkPasteForm() {
 
       {parsedRows.length > 0 && (
         <div className="mb-4">
+          <p className="text-xs text-gray-500 mb-1">
+            Detected format: <span className="text-gray-300">{detectedFormat}</span>
+          </p>
           <p className="text-xs text-gray-500 mb-2">
             {readyCount} ready to save{errorCount > 0 ? `, ${errorCount} need attention` : ''}
           </p>
