@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { standardEventType, eventTypeLabel } from '../eventTypeRules'
 
 const CLASSIFICATIONS = ['6A', '5A', '4A', '3A', '2A', 'A']
 
@@ -8,6 +9,8 @@ export default function Rankings() {
   const [classification, setClassification] = useState('5A')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
+
+  const eventType = standardEventType(gender, classification)
 
   useEffect(() => {
     fetchResults()
@@ -20,7 +23,7 @@ export default function Rankings() {
       .select('*, xc_schools(name)')
       .eq('gender', gender)
       .eq('classification', classification)
-      .eq('event_type', '5K')
+      .eq('event_type', standardEventType(gender, classification))
       .order('time_seconds', { ascending: true })
       .limit(50)
 
@@ -49,7 +52,7 @@ export default function Rankings() {
         <div className="hidden print:block mb-4">
           <p className="text-xs text-gray-500 mb-0.5">Oklahoma Cross Country Rankings</p>
           <h1 className="text-xl font-medium m-0 text-black">
-            {gender === 'boys' ? 'Boys' : 'Girls'} {classification} · 5K
+            {gender === 'boys' ? 'Boys' : 'Girls'} {classification} · {eventTypeLabel(eventType)}
           </h1>
           <p className="text-xs text-gray-500 mt-1">Printed {new Date().toLocaleDateString()}</p>
         </div>
@@ -100,7 +103,7 @@ export default function Rankings() {
         <div className="min-w-0">
           <div className="flex items-baseline justify-between mb-2 print:hidden">
             <h2 className="text-base font-medium m-0 text-gray-100">
-              {gender === 'boys' ? 'Boys' : 'Girls'} {classification} · 5K
+              {gender === 'boys' ? 'Boys' : 'Girls'} {classification} · {eventTypeLabel(eventType)}
             </h2>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-500">Top 50</span>
