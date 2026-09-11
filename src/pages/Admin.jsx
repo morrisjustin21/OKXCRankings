@@ -82,7 +82,7 @@ function Login() {
 }
 
 function AdminHome() {
-  const [tab, setTab] = useState('single') // 'single' | 'bulk' | 'schools' | 'manage'
+  const [tab, setTab] = useState('single') // 'single' | 'bulk' | 'schools' | 'manage' | 'meets'
 
   return (
     <div className="flex justify-center p-6">
@@ -111,12 +111,16 @@ function AdminHome() {
           <TabButton active={tab === 'manage'} onClick={() => setTab('manage')}>
             Manage results
           </TabButton>
+          <TabButton active={tab === 'meets'} onClick={() => setTab('meets')}>
+            Meets
+          </TabButton>
         </div>
 
         {tab === 'single' && <ResultEntryForm />}
         {tab === 'bulk' && <BulkPasteForm />}
         {tab === 'schools' && <SchoolManager />}
         {tab === 'manage' && <ManageResults />}
+        {tab === 'meets' && <MeetsList />}
       </div>
     </div>
   )
@@ -619,11 +623,105 @@ function parseWebscorerFormat(text) {
   return rows
 }
 
+// --- Format 6: "Fixed-width results report" style --------------------------
+// Rows like:
+//   "1 1 26 Allie Hasselman Grove HS 20:22 6:35"          (scoring runner — has TmPl)
+//   "2 91 Allison Martin Pryor HS 20:39 6:40"              (non-scoring — no TmPl)
+// Originally a fixed-width/monospace table (Place, TmPl, No., Name, School,
+// Time, Pace), but copying it collapses all the column padding into single
+// spaces, so the columns can't be told apart by position anymore — and the
+// team-placement column only exists for scoring runners, so the row length
+// itself varies. Like Webscorer, this can arrive with no line breaks at all.
+// The anchor here is the row always ending in two time-shaped tokens
+// (Time, then Pace) with nothing but plain words/numbers before them.
+// Working backward from that anchor: strip Place (first token) and the two
+// trailing times, then in what's left, consume every leading pure-number
+// token (that's TmPl if present, then always No./bib) — whatever's left
+// after that split cleanly into exactly 2 name words, then the school.
+// One real limitation: a school name that itself got truncated by the
+// original column width (e.g. "Sequoyah-Tahleq") won't match anything in
+// the Schools tab automatically — an alias covering the truncated form is
+// the fix, since there's no way to reconstruct the missing letters.
+const FIXED_WIDTH_HINT_RE = /Place\s+TmPl\s+No\.\s+Name\s+School\s+Time\s+Pace/i
+const FIXED_WIDTH_LEVEL_GENDER_RE = /\b(High School|Middle School)\s+(Boys|Girls)\b/gi
+const FIXED_WIDTH_ROW_RE = /(\d+)\s+([\dA-Za-z'\- ]{3,60}?)\s+(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})(?=\s|$)/g
+
+function parseFixedWidthReportFormat(text) {
+  const events = []
+  let m
+  const headerRe = new RegExp(FIXED_WIDTH_LEVEL_GENDER_RE)
+  while ((m = headerRe.exec(text))) {
+    events.push({
+      index: m.index,
+      type: 'header',
+      isJH: /middle school/i.test(m[1]),
+      gender: m[2].toLowerCase() === 'girls' ? 'girls' : 'boys',
+    })
+  }
+
+  const rowRe = new RegExp(FIXED_WIDTH_ROW_RE)
+  while ((m = rowRe.exec(text))) {
+    const blob = m[2]
+    const timeStr = m[3]
+    const tokens = blob.trim().split(/\s+/)
+    let i = 0
+    while (i < tokens.length && /^\d+$/.test(tokens[i])) i++
+    if (i === 0) continue // need at least a bib number before the name
+    const nameTokens = tokens.slice(i, i + 2)
+    if (nameTokens.length < 2) continue
+    const schoolTokens = tokens.slice(i + 2)
+    if (schoolTokens.length === 0) continue
+    const time_seconds = parseFlexibleTime(timeStr)
+    if (time_seconds === null) continue
+    events.push({
+      index: m.index,
+      type: 'row',
+      athlete_name: nameTokens.join(' '),
+      school_name_raw: schoolTokens.join(' '),
+      time_seconds,
+    })
+  }
+  events.sort((a, b) => a.index - b.index)
+
+  // Distance doesn't usually change within one pasted report, so detect it
+  // once for the whole text rather than per-section.
+  let eventType = null
+  if (FIVE_K_RE.test(text)) eventType = '5K'
+  else if (TWO_MILE_RE.test(text) || THIRTY_TWO_HUNDRED_M_RE.test(text)) eventType = '2Mile'
+
+  let currentGender = null
+  let currentIsJH = false
+  const rows = []
+  for (const e of events) {
+    if (e.type === 'header') {
+      currentGender = e.gender
+      currentIsJH = e.isJH
+      continue
+    }
+    if (currentIsJH) continue
+    rows.push({
+      lineNumber: rows.length + 1,
+      athlete_name: e.athlete_name,
+      school_name_raw: e.school_name_raw,
+      grade: null,
+      gender: currentGender,
+      eventType,
+      time_seconds: e.time_seconds,
+    })
+  }
+  return rows
+}
+
 function parsePastedText(rawText) {
   if (WEBSCORER_HINT_RE.test(rawText)) {
     // This source can arrive with no line breaks at all, so it parses the
     // raw text directly rather than going through the line-based paths below.
     return parseWebscorerFormat(rawText)
+  }
+
+  if (FIXED_WIDTH_HINT_RE.test(rawText)) {
+    // Also can arrive with no line breaks — same reason as above.
+    return parseFixedWidthReportFormat(rawText)
   }
 
   // Some source PDFs have a stray space before the comma in "Last , First"
@@ -1446,6 +1544,171 @@ function ManageResults() {
                   <td className="py-1.5 text-gray-500">{r.meet_date || '—'}</td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MeetsList() {
+  const [meets, setMeets] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [summary, setSummary] = useState('')
+  const [deletingKey, setDeletingKey] = useState(null)
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    fetchMeets()
+  }, [])
+
+  async function fetchMeets() {
+    setLoading(true)
+    setError('')
+    const { data, error: fetchErr } = await supabase
+      .from('xc_results')
+      .select('meet_name, meet_date, gender, classification, event_type')
+      .limit(10000)
+
+    if (fetchErr) {
+      setError(fetchErr.message)
+      setLoading(false)
+      return
+    }
+
+    const groups = new Map()
+    for (const r of data || []) {
+      const key = `${r.meet_name || ''}\u0000${r.meet_date || ''}`
+      if (!groups.has(key)) {
+        groups.set(key, {
+          meet_name: r.meet_name,
+          meet_date: r.meet_date,
+          count: 0,
+          genders: new Set(),
+          classifications: new Set(),
+          eventTypes: new Set(),
+        })
+      }
+      const g = groups.get(key)
+      g.count += 1
+      if (r.gender) g.genders.add(r.gender)
+      if (r.classification) g.classifications.add(r.classification)
+      if (r.event_type) g.eventTypes.add(r.event_type)
+    }
+
+    const list = Array.from(groups.values()).sort((a, b) => {
+      // Most recent date first; meets with no date sort last
+      if (!a.meet_date && !b.meet_date) return 0
+      if (!a.meet_date) return 1
+      if (!b.meet_date) return -1
+      return b.meet_date.localeCompare(a.meet_date)
+    })
+
+    setMeets(list)
+    setLoading(false)
+  }
+
+  async function handleDeleteMeet(meet) {
+    const label = meet.meet_name || '(no meet name)'
+    const confirmed = window.confirm(
+      `Delete all ${meet.count} result(s) from "${label}"${meet.meet_date ? ` on ${meet.meet_date}` : ''}? This can't be undone.`
+    )
+    if (!confirmed) return
+
+    const key = `${meet.meet_name || ''}\u0000${meet.meet_date || ''}`
+    setDeletingKey(key)
+    setError('')
+    setSummary('')
+
+    let query = supabase.from('xc_results').delete()
+    query = meet.meet_name ? query.eq('meet_name', meet.meet_name) : query.is('meet_name', null)
+    query = meet.meet_date ? query.eq('meet_date', meet.meet_date) : query.is('meet_date', null)
+
+    const { data, error: deleteErr } = await query.select()
+
+    setDeletingKey(null)
+
+    if (deleteErr) {
+      setError(`Could not delete: ${deleteErr.message}`)
+      return
+    }
+    if (!data || data.length === 0) {
+      setError('Nothing was deleted — this usually means the database is missing a DELETE permission for xc_results.')
+      return
+    }
+
+    setSummary(`Deleted ${data.length} result(s) from "${label}".`)
+    fetchMeets()
+  }
+
+  const visibleMeets = search.trim()
+    ? meets.filter((m) => (m.meet_name || '').toLowerCase().includes(search.trim().toLowerCase()))
+    : meets
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter by meet name..."
+          className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-3 py-1.5 text-sm w-64"
+        />
+        <p className="text-xs text-gray-500">
+          {visibleMeets.length} meet{visibleMeets.length === 1 ? '' : 's'}
+        </p>
+      </div>
+
+      {summary && <p className="text-sm text-green-400 mb-2">{summary}</p>}
+      {error && <p className="text-sm text-red-300 mb-2">{error}</p>}
+
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading meets...</p>
+      ) : visibleMeets.length === 0 ? (
+        <p className="text-sm text-gray-500">No meets found.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm min-w-[640px]">
+            <thead>
+              <tr>
+                <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2">Meet</th>
+                <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2">Date</th>
+                <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2">Results</th>
+                <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2">Gender</th>
+                <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2">Class</th>
+                <th className="text-left text-xs text-gray-500 font-normal py-1 pr-2">Event</th>
+                <th className="text-left text-xs text-gray-500 font-normal py-1"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleMeets.map((m) => {
+                const key = `${m.meet_name || ''}\u0000${m.meet_date || ''}`
+                return (
+                  <tr key={key} className="border-t border-gray-800">
+                    <td className="py-1.5 pr-2">{m.meet_name || <span className="text-gray-500">(no meet name)</span>}</td>
+                    <td className="py-1.5 pr-2 text-gray-400">{m.meet_date || '—'}</td>
+                    <td className="py-1.5 pr-2">{m.count}</td>
+                    <td className="py-1.5 pr-2 capitalize text-gray-400">
+                      {Array.from(m.genders).join(', ') || '—'}
+                    </td>
+                    <td className="py-1.5 pr-2 text-gray-400">{Array.from(m.classifications).sort().join(', ') || '—'}</td>
+                    <td className="py-1.5 pr-2 text-gray-400">{Array.from(m.eventTypes).join(', ') || '—'}</td>
+                    <td className="py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMeet(m)}
+                        disabled={deletingKey === key}
+                        className="text-xs text-red-300 border border-red-900/50 rounded px-2 py-1 hover:bg-red-950/40 disabled:opacity-40"
+                      >
+                        {deletingKey === key ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
