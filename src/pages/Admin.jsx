@@ -948,7 +948,25 @@ function BulkPasteForm() {
       return { ...row, school_id: match.id, classification: match.classification, error: null }
     })
 
-    setParsedRows(resolved)
+    // Once a row has a resolved gender + classification + school, check its
+    // distance against what's standard for that combination. A mismatch
+    // (e.g. a 5A girls result tagged 3200m/2Mile, or vice versa) will never
+    // appear on the public rankings page — that page only ever queries the
+    // one standard distance for a given gender/classification — so surface
+    // it as an error here rather than letting it save invisibly.
+    const withDistanceCheck = resolved.map((row) => {
+      if (row.error || !row.classification) return row
+      const expected = standardEventType(row.gender, row.classification)
+      if (row.eventType !== expected) {
+        return {
+          ...row,
+          error: `Non-standard distance: ${row.classification} ${row.gender} normally runs ${expected === '2Mile' ? '3200m' : '5K'}, but this result is tagged ${row.eventType === '2Mile' ? '3200m' : row.eventType}. It would save but never appear in rankings — fix the source data or confirm this is intentional before saving elsewhere.`,
+        }
+      }
+      return row
+    })
+
+    setParsedRows(withDistanceCheck)
     setPreviewing(false)
   }
 
@@ -1045,12 +1063,6 @@ function BulkPasteForm() {
           <p className="text-xs text-gray-500 mb-2">
             {readyCount} ready to save{errorCount > 0 ? `, ${errorCount} need attention` : ''}
           </p>
-          {parsedRows.some((r) => r.eventType === '2Mile') && (
-            <p className="text-xs text-amber-300 bg-amber-950/40 rounded px-2 py-1.5 mb-2">
-              This batch includes 2 Mile results. They'll save correctly tagged as 2 Mile, but
-              won't show up on the public rankings page yet since that only displays 5K.
-            </p>
-          )}
           <table className="w-full border-collapse text-sm mb-3">
             <thead>
               <tr>
@@ -1369,6 +1381,7 @@ function ManageResults() {
   const [classificationFilter, setClassificationFilter] = useState('all')
   const [eventTypeFilter, setEventTypeFilter] = useState('all')
   const [meetFilter, setMeetFilter] = useState('')
+  const [mismatchOnly, setMismatchOnly] = useState(false)
 
   useEffect(() => {
     fetchResults()
@@ -1394,9 +1407,15 @@ function ManageResults() {
     setLoading(false)
   }
 
-  const visibleRows = meetFilter.trim()
+  const visibleRows = (meetFilter.trim()
     ? rows.filter((r) => (r.meet_name || '').toLowerCase().includes(meetFilter.trim().toLowerCase()))
     : rows
+  ).filter((r) => !mismatchOnly || isDistanceMismatch(r))
+
+  function isDistanceMismatch(r) {
+    if (!r.gender || !r.classification || !r.event_type) return false
+    return r.event_type !== standardEventType(r.gender, r.classification)
+  }
 
   function toggleRow(id) {
     setSelected((prev) => {
@@ -1453,7 +1472,7 @@ function ManageResults() {
 
   return (
     <div>
-      <div className="grid grid-cols-4 gap-2 mb-3">
+      <div className="grid grid-cols-5 gap-2 mb-3">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Gender</label>
           <select
@@ -1503,6 +1522,12 @@ function ManageResults() {
             className="border border-gray-700 rounded bg-gray-800 text-gray-100 px-2 py-1.5 text-sm w-full"
           />
         </div>
+        <div className="flex items-end pb-1.5">
+          <label className="flex items-center gap-1.5 text-xs text-amber-300">
+            <input type="checkbox" checked={mismatchOnly} onChange={(e) => setMismatchOnly(e.target.checked)} />
+            Non-standard distance only
+          </label>
+        </div>
       </div>
 
       <div className="flex items-center justify-between mb-2">
@@ -1545,24 +1570,46 @@ function ManageResults() {
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((r) => (
-                <tr key={r.id} className={`border-t border-gray-800 ${selected.has(r.id) ? 'bg-red-950/40' : ''}`}>
-                  <td className="py-1.5">
-                    <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} />
-                  </td>
-                  <td className="py-1.5">{r.athlete_name}</td>
-                  <td className="py-1.5 text-gray-500">{r.xc_schools?.name}</td>
-                  <td className="py-1.5 capitalize">{r.gender}</td>
-                  <td className="py-1.5">{r.classification}</td>
-                  <td className="py-1.5">{r.event_type}</td>
-                  <td className="py-1.5">{formatTime(r.time_seconds)}</td>
-                  <td className="py-1.5 text-gray-500">{r.meet_name || '—'}</td>
-                  <td className="py-1.5 text-gray-500">{r.meet_date || '—'}</td>
-                </tr>
-              ))}
+              {visibleRows.map((r) => {
+                const mismatch = isDistanceMismatch(r)
+                return (
+                  <tr
+                    key={r.id}
+                    className={`border-t border-gray-800 ${
+                      selected.has(r.id) ? 'bg-red-950/40' : mismatch ? 'bg-amber-950/30' : ''
+                    }`}
+                  >
+                    <td className="py-1.5">
+                      <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} />
+                    </td>
+                    <td className="py-1.5">{r.athlete_name}</td>
+                    <td className="py-1.5 text-gray-500">{r.xc_schools?.name}</td>
+                    <td className="py-1.5 capitalize">{r.gender}</td>
+                    <td className="py-1.5">{r.classification}</td>
+                    <td className="py-1.5">
+                      {r.event_type}
+                      {mismatch && (
+                        <span className="text-amber-400 ml-1" title="Non-standard distance for this gender/classification — never appears in public rankings">
+                          ⚠
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-1.5">{formatTime(r.time_seconds)}</td>
+                    <td className="py-1.5 text-gray-500">{r.meet_name || '—'}</td>
+                    <td className="py-1.5 text-gray-500">{r.meet_date || '—'}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
+      )}
+      {visibleRows.some((r) => isDistanceMismatch(r)) && (
+        <p className="text-xs text-amber-300 mt-2">
+          ⚠ Rows highlighted above have a distance that doesn't match the standard for their
+          gender/classification, and will never appear on the public rankings page. Fix the
+          classification or event type, or delete the row.
+        </p>
       )}
     </div>
   )
