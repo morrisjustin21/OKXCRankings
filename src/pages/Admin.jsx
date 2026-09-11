@@ -767,7 +767,93 @@ function parseFixedWidthReportFormat(text) {
   return rows
 }
 
+// --- Format 1b: "Duncan Invite" style, scanned without relying on line
+// breaks -----------------------------------------------------------------
+// The original Duncan parser (parseDuncanResultLine, above) requires each
+// row to BE its own complete line, anchored start-to-end. That breaks
+// completely if the source gets pasted with no line breaks at all (common
+// when copying from a PDF): the anchored pattern can only match the very
+// first row, and — since it still needs to reach an end-of-line/string to
+// close the match — its "team" field swallows every row after it into one
+// garbage string, losing the rest of the meet entirely. This version scans
+// the raw text for the row pattern wherever it occurs, the same fix used
+// for Webscorer and the fixed-width report format. Team names are captured
+// with a digit-free character set, so the match naturally stops right
+// before the next row's leading numbers rather than needing a line break.
+const DUNCAN_HINT_RE = /Overall\s+Score\s+Bib#\s+Name\s+Class\s+Chip\s+Time\s+Team/i
+const DUNCAN_GLOBAL_ROW_RE =
+  /(\d+)\s+\(?\d+\)?\s+\d+\s+([A-Za-z.'\s-]{2,60}?)\s+(FR|SO|JR|SR)\s+(\d{1,2}:\d{2}:\d{2}(?:\.\d{1,2})?)\s+([A-Za-z.'()\s-]{2,80}?)(?=\s+\d|\s*$)/g
+
+function parseDuncanGlobalFormat(text) {
+  const events = []
+  let m
+
+  const genderRe = /\b(girls|boys)\b/gi
+  while ((m = genderRe.exec(text))) {
+    events.push({ index: m.index, type: 'header', gender: m[1].toLowerCase() })
+  }
+  const jhRe = /\bjh\b|\bms\b|junior high|middle school/gi
+  while ((m = jhRe.exec(text))) {
+    events.push({ index: m.index, type: 'jh-header' })
+  }
+  const distanceRe = /\b5k\b|\b5000|2\s*mile|3200\s*meter/gi
+  while ((m = distanceRe.exec(text))) {
+    const isFiveK = /5k|5000/i.test(m[0])
+    events.push({ index: m.index, type: 'distance-header', eventType: isFiveK ? '5K' : '2Mile' })
+  }
+
+  const rowRe = new RegExp(DUNCAN_GLOBAL_ROW_RE)
+  while ((m = rowRe.exec(text))) {
+    const [, , nameBlob, classTag, chipTime, teamBlob] = m
+    const time_seconds = parseFlexibleTime(chipTime)
+    if (time_seconds === null) continue
+    events.push({
+      index: m.index,
+      type: 'row',
+      athlete_name: nameBlob.trim(),
+      grade: CLASS_TO_GRADE[classTag],
+      school_name_raw: teamBlob.trim(),
+      time_seconds,
+    })
+  }
+  events.sort((a, b) => a.index - b.index)
+
+  let currentGender = null
+  let currentEventType = '5K'
+  let currentIsJH = false
+  const rows = []
+  for (const e of events) {
+    if (e.type === 'header') {
+      currentGender = e.gender
+      continue
+    }
+    if (e.type === 'jh-header') {
+      currentIsJH = true
+      continue
+    }
+    if (e.type === 'distance-header') {
+      currentEventType = e.eventType
+      continue
+    }
+    if (currentIsJH) continue
+    rows.push({
+      lineNumber: rows.length + 1,
+      athlete_name: e.athlete_name,
+      school_name_raw: e.school_name_raw,
+      grade: e.grade,
+      gender: currentGender,
+      eventType: currentEventType,
+      time_seconds: e.time_seconds,
+    })
+  }
+  return rows
+}
+
 function parsePastedText(rawText) {
+  if (DUNCAN_HINT_RE.test(rawText)) {
+    return parseDuncanGlobalFormat(rawText)
+  }
+
   if (WEBSCORER_HINT_RE.test(rawText)) {
     // This source can arrive with no line breaks at all, so it parses the
     // raw text directly rather than going through the line-based paths below.
@@ -901,12 +987,13 @@ function normalizeSchoolName(name) {
 const PLACE_HASH_NAME_TEAM_MARK_HINT_RE = /Place\s+#\s+Name\s+Team\s+Mark/i
 
 function detectFormatName(text) {
+  if (DUNCAN_HINT_RE.test(text)) return 'Duncan Invite'
   if (WEBSCORER_HINT_RE.test(text)) return 'Webscorer'
   if (FIXED_WIDTH_HINT_RE.test(text)) return 'Fixed-width report'
   if (PLAIN_FORMAT_HINT_RE.test(text)) return 'Plain columns (FirstName LastName)'
   if (DA_FORMAT_HINT_RE.test(text)) return 'DirectAthletics MeetPro'
   if (PLACE_HASH_NAME_TEAM_MARK_HINT_RE.test(text)) return 'Place / Bib / Name / Team / Mark'
-  return 'Duncan-style / Hy-Tek Meet Manager'
+  return 'Hy-Tek Meet Manager'
 }
 
 function BulkPasteForm() {
