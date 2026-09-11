@@ -520,6 +520,7 @@ const DA_FORMAT_HINT_RE = /directathletics|avg\.?\s*mile/i
 const PLAIN_FORMAT_HINT_RE = /firstname\s+lastname/i
 const JH_HEADER_RE = /\bjh\b|\bms\b|junior high|middle school/i
 const FIVE_K_RE = /\b5k\b/i
+const FIVE_THOUSAND_M_RE = /\b5000/ // "5000m" or "5000 Meter" — same distance as 5K
 const TWO_MILE_RE = /2\s*mile/i
 const THIRTY_TWO_HUNDRED_M_RE = /3200\s*meter/i
 
@@ -582,10 +583,37 @@ function detectHeaderInfo(line) {
   const genderMatch = line.match(GENDER_HEADER_RE)
   const isJH = JH_HEADER_RE.test(line)
   let eventType = null
-  if (FIVE_K_RE.test(line)) eventType = '5K'
+  if (FIVE_K_RE.test(line) || FIVE_THOUSAND_M_RE.test(line)) eventType = '5K'
   else if (TWO_MILE_RE.test(line) || THIRTY_TWO_HUNDRED_M_RE.test(line)) eventType = '2Mile'
   if (!genderMatch && !isJH && !eventType) return null
   return { gender: genderMatch ? genderMatch[1].toLowerCase() : null, eventType, isJH }
+}
+
+// --- Format 7: "Place # Name Team Mark" style -------------------------------
+// Lines like:
+//   "1 601 Hattie Ray Beshears Har-Ber 16:38.0"
+//   "-- 632 Madison Malone Jenks DNF"           (non-finisher — excluded)
+// Like the Plain format, name and team have no delimiter, so that split is
+// deferred to preview time against the Schools list. Place can be "--" for
+// a DNF, and Mark can be "DNF" instead of a time — both correctly fail to
+// match here rather than producing a bogus zero-time result. Section titles
+// use combined classification groups (e.g. "5A-6A", "Open 2A-4A"), same as
+// other combined-classification meets — each athlete's real classification
+// still comes from their school's own record, not from this group label.
+function parseBibNameTeamMarkLine(line) {
+  const tokens = line.trim().split(/\s+/)
+  if (tokens.length < 4) return null
+  if (tokens[0] !== '--' && !/^\d+$/.test(tokens[0])) return null
+  if (!/^\d+$/.test(tokens[1])) return null
+
+  const markToken = tokens[tokens.length - 1]
+  const time_seconds = parseFlexibleTime(markToken)
+  if (time_seconds === null) return null // catches "DNF", "DQ", "NT", etc.
+
+  const middleStr = tokens.slice(2, -1).join(' ').trim()
+  if (!middleStr) return null
+
+  return { needsSchoolSplit: true, middleStr, time_seconds, grade: null }
 }
 
 // --- Format 5: "Webscorer" style --------------------------------------------
@@ -825,17 +853,19 @@ function parsePastedText(rawText) {
     return rows.filter((r) => !r.isJH)
   }
 
-  // Duncan Invite / Hy-Tek Meet Manager style: section headers appear BEFORE
-  // their rows, so a plain forward scan works. Both line formats are tried
-  // per line (they can't collide — Duncan requires a literal FR/SO/JR/SR tag
-  // that Hy-Tek lines never have). Distance defaults to 5K unless a header
-  // says otherwise, matching your Duncan data where distance is never stated.
+  // Duncan Invite / Hy-Tek Meet Manager / "Place # Name Team Mark" style:
+  // section headers appear BEFORE their rows, so a plain forward scan works.
+  // All three line formats are tried per line — they can't collide (Duncan
+  // requires a literal FR/SO/JR/SR tag, Hy-Tek requires a comma-terminated
+  // name token, neither of which this format's plain "Place Bib Name Team
+  // Mark" rows have). Distance defaults to 5K unless a header says
+  // otherwise, matching your Duncan data where distance is never stated.
   let currentGender = null
   let currentEventType = '5K'
   let currentIsJH = false
   const rows = []
   lines.forEach((line, i) => {
-    const parsed = parseDuncanResultLine(line) || parseHyTekResultLine(line)
+    const parsed = parseDuncanResultLine(line) || parseHyTekResultLine(line) || parseBibNameTeamMarkLine(line)
     if (parsed) {
       if (!currentIsJH) {
         rows.push({ lineNumber: i + 1, raw: line, gender: currentGender, eventType: currentEventType, ...parsed })
@@ -868,11 +898,14 @@ function normalizeSchoolName(name) {
 // Purely for the "detected format" label shown in the preview — mirrors the
 // same fingerprint checks parsePastedText uses, in the same priority order,
 // so what's displayed always matches what actually parsed the text.
+const PLACE_HASH_NAME_TEAM_MARK_HINT_RE = /Place\s+#\s+Name\s+Team\s+Mark/i
+
 function detectFormatName(text) {
   if (WEBSCORER_HINT_RE.test(text)) return 'Webscorer'
   if (FIXED_WIDTH_HINT_RE.test(text)) return 'Fixed-width report'
   if (PLAIN_FORMAT_HINT_RE.test(text)) return 'Plain columns (FirstName LastName)'
   if (DA_FORMAT_HINT_RE.test(text)) return 'DirectAthletics MeetPro'
+  if (PLACE_HASH_NAME_TEAM_MARK_HINT_RE.test(text)) return 'Place / Bib / Name / Team / Mark'
   return 'Duncan-style / Hy-Tek Meet Manager'
 }
 
